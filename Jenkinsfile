@@ -1,59 +1,77 @@
-properties(
-  [
-    disableConcurrentBuilds()
-  ]
-)
+#!/usr/bin/env groovy
 
-// https://issues.jenkins-ci.org/browse/JENKINS-33511
-def set_workspace() {
-  if(env.WORKSPACE == null) {
-    env.WORKSPACE = WORKSPACE = pwd()
-  }
-}
+node {
+    checkout scm
+    def build = load("build.groovy")
+    def buildlib = build.buildlib
+    def commonlib = build.commonlib
 
-node('openshift-build-1') {
-  try {
-    timeout(time: 30, unit: 'MINUTES') {
-      deleteDir()
-      set_workspace()
-      dir('aos-cd-jobs') {
-        stage('clone') {
-          checkout scm
-          sh 'git checkout master'
-        }
-        stage('run') {
-          final url = sh(
-            returnStdout: true,
-            script: 'git config remote.origin.url')
-          if(!(url =~ /^[-\w]+@[-\w]+(\.[-\w]+)*:/)) {
-            error('This job uses ssh keys for auth, please use an ssh url')
-          }
-          def prune = true, key = 'openshift-bot'
-          if(url.trim() != 'git@github.com:openshift/aos-cd-jobs.git') {
-            prune = false
-            key = "${(url =~ /.*:([^\/]+)/)[0][1]}-aos-cd-bot"
-          }
-          sshagent([key]) {
-            sh """\
-virtualenv ../env/
-. ../env/bin/activate
-pip install gitpython
-${prune ? 'python -m aos_cd_jobs.pruner' : 'echo Fork, skipping pruner'}
-python -m aos_cd_jobs.updater
-"""
-          }
-        }
-      }
+    properties(
+        [
+            buildDiscarder(
+                logRotator(
+                    artifactDaysToKeepStr: '',
+                    artifactNumToKeepStr: '',
+                    daysToKeepStr: '',
+                    numToKeepStr: ''
+                )
+            ),
+            [
+                $class : 'ParametersDefinitionProperty',
+                parameterDefinitions: [
+                    // [
+                    //     name: 'ADVISORY',
+                    //     description: 'Optional: RPM/Bug fix advisory number\nIf not provided then the default advisory will be used.',
+                    //     $class: 'hudson.model.StringParameterDefinition',
+                    //     defaultValue: ""
+                    // ],
+                    // [
+                    //     name: 'BUILDS',
+                    //     description: 'Optional: Only attach these brew builds (accepts numeric id or NVR)\nComma separated list\nOverrides SKIP_ADDING_BUILDS',
+                    //     $class: 'hudson.model.StringParameterDefinition',
+                    //     defaultValue: ""
+                    // ],
+                    // [
+                    //     name: 'SKIP_ADDING_BUILDS',
+                    //     description: 'Do not bother adding more builds\nfor example: if you are already satisfied with what is already attached and just need to run the rpmdiff/signing process',
+                    //     $class: 'BooleanParameterDefinition',
+                    //     defaultValue: false
+                    // ],
+                    // [
+                    //     name: 'DRY_RUN',
+                    //     description: 'Do not change anything. Just show what would have happened',
+                    //     $class: 'BooleanParameterDefinition',
+                    //     defaultValue: false
+                    // ],
+                    commonlib.mockParam(),
+                    commonlib.ocpVersionParam('BUILD_VERSION'),
+                ]
+            ],
+            disableConcurrentBuilds(),
+        ]
+    )
+
+    def advisory = buildlib.getDefaultAdvisoryID(params.BULID_VERSION, 'rpm')
+
+    stage("Initialize") {
+	buildlib.elliott "--version"
+	buildlib.kinit()
+	build.initialize()
     }
-  } catch(err) {
-    mail(
-      to: 'tbielawa@redhat.com, jupierce@redhat.com',
-      from: "aos-cicd@redhat.com",
-      subject: 'aos-cd-jobs-branches job: error',
-      body: """\
-Encoutered an error while running the aos-cd-jobs-branches job: ${err}\n\n
-Jenkins job: ${env.BUILD_URL}
-""")
-    throw err
-  }
+    sshagent(["openshift-bot"]) {
+	stage("Advisory is NEW_FILES") { build.signedComposeStateNewFiles() }
+	stage("Attach builds") { build.signedComposeAttachBuilds() }
+	stage("RPM diffs ran") { build.signedComposeRpmdiffsRan(advisory) }
+	stage("RPM diffs resolved") { build.signedComposeRpmdiffsResolved(advisory) }
+	stage("Advisory is QE") { build.signedComposeStateQE() }
+	stage("Signing completing") { build.signedComposeRpmsSigned() }
+	stage("New compose") { build.signedComposeNewCompose() }
+    }
+
+
+    // ######################################################################
+    // Email results
+
+    //
+    // ######################################################################
 }
