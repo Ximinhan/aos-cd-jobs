@@ -5,7 +5,6 @@ ocp3Versions = [
     "3.11",
     "3.10",
     "3.9",
-    "3.7",
 ]
 
 // Which version of ocp4 build parameters should show by default
