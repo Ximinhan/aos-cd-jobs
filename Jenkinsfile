@@ -41,7 +41,12 @@ node() {
         slackChannel = slacklib.to(BUILD_VERSION)
         report = buildlib.doozer("${doozerOpts} images:health", [capture: true]).trim()
         if (report) {
-            slackChannel.say(":alert: Howdy, guys! There are some issues to look into for ${group}\n${report}")
+            echo "The report:\n${report}"
+            if (params.SEND_TO_SLACK) {
+                slackChannel.say(":alert: Howdy, guys! There are some issues to look into for ${group}\n${report}")
+            }
+        } else {
+            echo "There are no issues to report."
         }
 
     }
