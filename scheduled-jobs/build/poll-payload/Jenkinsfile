@@ -68,7 +68,7 @@ def publishRPMs(String latestRelease) {
         build(
             job: '/aos-cd-builds/build%2Fpublish-rpms',
             parameters: [
-                string(name: 'BUILD_VERSION', value: commonlib.extractMajorMinorVersion(releaseStream)),
+                string(name: 'BUILD_VERSION', value: commonlib.extractMajorMinorVersion(latestRelease)),
             ],
         )
     }
