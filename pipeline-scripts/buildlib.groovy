@@ -127,7 +127,7 @@ def doozer(cmd, opts=[:]){
             return commonlib.shell(
                     returnStdout: opts.capture ?: false,
                     alwaysArchive: opts.capture ?: false,
-                    script: "doozer ${cleanWhitespace(cmd)}")
+                    script: "./art-tools/doozer/doozer ${cleanWhitespace(cmd)}")
         }
     }
 }
