@@ -54,7 +54,7 @@ node() {
                 }
             }
         } catch (exception) {
-            slackChannel.say(":alert: Image health check job failed!\n${BUILD_URL}")
+            // slackChannel.say(":alert: Image health check job failed!\n${BUILD_URL}")
             currentBuild.result = "FAILURE"
             throw exception  // gets us a stack trace FWIW
         }
