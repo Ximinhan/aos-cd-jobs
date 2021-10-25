@@ -80,14 +80,14 @@ node() {
                     if (report) {
                         echo "The report:\n${report}"
                         attachments = [
-                           {
+                            {
 			                    "blocks": [
 				                    {
 					                    "type": "section",
 					                    "text": {
-						                "type": "plain_text",
-						                "text": "${report}",
-						                "emoji": true
+						                    "type": "plain_text",
+						                    "text": "${report}",
+						                    "emoji": true
 					                    }
 				                    }
 			                    ]
