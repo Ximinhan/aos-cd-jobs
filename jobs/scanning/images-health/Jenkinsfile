@@ -79,11 +79,25 @@ node() {
                     report = buildlib.doozer("${doozerOpts} images:streams prs list", [capture: true]).trim()
                     if (report) {
                         echo "The report:\n${report}"
+                        attachments = [
+                           {
+			                    "blocks": [
+				                    {
+					                    "type": "section",
+					                    "text": {
+						                "type": "plain_text",
+						                "text": "${report}",
+						                "emoji": true
+					                    }
+				                    }
+			                    ]
+		                    }
+                        ]
                         if (params.SEND_TO_SLACK) {
-                            slackChannel.say(":scroll: Howdy! Some upstream prs are still open for ${group}\n${report}")
+                            slackChannel.say(":scroll: Howdy! Some alignment prs are still open for ${group}\n", attachments)
                         }
                     } else {
-                        echo "There are no open pr left."
+                        echo "There are no alignment pr left open."
                         if (params.SEND_TO_SLACK) {
                             slackChannel.say(":scroll: All prs are merged for ${group}")
                         }
