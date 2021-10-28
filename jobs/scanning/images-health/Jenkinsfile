@@ -78,18 +78,24 @@ node() {
                 try {
                     report = buildlib.doozer("${doozerOpts} images:streams prs list", [capture: true]).trim()
                     if (report) {
-                        echo "The report:\n${report}"
-                        def attachments = [
+                        data = readYaml text: report
+                        text = ""
+                        data.each { email, repos ->
+                            text += "• ${email} is a contact for these PRs: \n"
+                            repos.each { repo, prs ->
+                                prs.each { pr -> text += "-- ${pr.pr_url}\n" }
+                            }
+                        }
+                        def attachment = [
                             color: "#f2c744",
-                            title: "PR report",
-                            text: "${report}",
+                            blocks: [[type: "section", text: [type: "mrkdwn", text: text]]]
                         ]
-                        slackChannel.pinAttachment(attachments)
+
                         if (params.SEND_TO_SLACK) {
-                            slackChannel.say(":scroll: Howdy! Some alignment prs are still open for ${group}\n", slackChannel.pinnedAttachments, true)
+                            slackChannel.say(":scroll: Howdy! Some alignment prs are still open for ${group}\n", [attachment])
                         }
                     } else {
-                        echo "There are no alignment pr left open."
+                        echo "There are no alignment prs left open."
                         if (params.SEND_TO_SLACK) {
                             slackChannel.say(":scroll: All prs are merged for ${group}")
                         }
