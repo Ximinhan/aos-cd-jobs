@@ -79,22 +79,14 @@ node() {
                     report = buildlib.doozer("${doozerOpts} images:streams prs list", [capture: true]).trim()
                     if (report) {
                         echo "The report:\n${report}"
-                        attachments = [
-                            {
-			                    "blocks": [
-				                    {
-					                    "type": "section",
-					                    "text": {
-						                    "type": "plain_text",
-						                    "text": "${report}",
-						                    "emoji": true
-					                    }
-				                    }
-			                    ]
-		                    }
+                        def attachments = [
+                            color: "#f2c744",
+                            title: "PR report",
+                            text: "${report}",
                         ]
+                        slackChannel.pinAttachment(attachments)
                         if (params.SEND_TO_SLACK) {
-                            slackChannel.say(":scroll: Howdy! Some alignment prs are still open for ${group}\n", attachments)
+                            slackChannel.say(":scroll: Howdy! Some alignment prs are still open for ${group}\n", slackChannel.pinnedAttachments, true)
                         }
                     } else {
                         echo "There are no alignment pr left open."
