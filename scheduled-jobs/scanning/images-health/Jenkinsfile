@@ -7,12 +7,12 @@ properties([
 description = ""
 failed = false
 
-def runFor(version) {
+def runFor(version, date) {
     b = build(
             job: '../scanning/scanning%2Fimages-health',
             parameters: [
                 string(name: 'BUILD_VERSION', value: version),
-                string(name: 'ALERT_DATE', value: 'Monday')
+                string(name: 'ALERT_DATE', value: date)
             ],
             propagate: false,
         )
@@ -31,7 +31,14 @@ node() {
     commonlib = buildlib.commonlib
 
     for ( String version : sortedVersions() ) {
-        runFor(version)
+        if ( version == "3.11" ) {
+            // skip 3.11 upstream pr check
+            runFor(version)
+        } else {
+            runFor(version, 'Monday')
+        }
+        // allow current github API rate limit window resets
+        sleep time: 60, unit: 'MINUTES'
     }
     buildlib.cleanWorkspace()
 }
