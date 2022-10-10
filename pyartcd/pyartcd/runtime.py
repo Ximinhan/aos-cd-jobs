@@ -8,6 +8,7 @@ import toml
 from pyartcd.jira import JIRAClient
 from pyartcd.mail import MailService
 from pyartcd.slack import SlackClient
+from github import Github
 
 
 class Runtime:
@@ -33,6 +34,12 @@ class Runtime:
             if not jira_token:
                 raise ValueError("JIRA_TOKEN environment variable is not set")
         return JIRAClient.from_url(self.config["jira"]["url"], token_auth=jira_token)
+    
+    def new_github_client(self, github_token: Optional[str] = None):
+        token = github_token if github_token else os.environ.get("GITHUB_TOKEN")
+        if not token:
+            raise ValueError("GITHUB_TOKEN environment variable is not set")
+        return Github(token)
 
     def new_slack_client(self, token: Optional[str] = None):
         if not token and not self.dry_run:

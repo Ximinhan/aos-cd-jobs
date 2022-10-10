@@ -1,7 +1,7 @@
 from typing import Optional, Sequence
 
 from pyartcd.cli import cli
-from pyartcd.pipelines import (prepare_release, promote, rebuild,
+from pyartcd.pipelines import (prepare_release, promote, rebuild, operator_sdk_sync,
                                tarball_sources, check_bugs, sweep, report_rhcos, review_cvp)
 
 
