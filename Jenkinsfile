@@ -94,7 +94,6 @@ timeout(activity: true, time: 1, unit: 'DAYS') {  // if there is no log activity
 
             stage('scan') {
                 sshagent(['openshift-bot']) {
-
                     // To make installing covscan reasonably quick for scanner images, make a local copy of covscan repos.
                     // doozer can use these with the --local-repo arg to images:covscan.
                     withEnv(["https_proxy=", "http_proxy=", "no_proxy="]) {
@@ -132,7 +131,7 @@ enabled_metadata=1
                                 sh "createrepo_c ${prefix}_repos/covscan-testing"
                             }
                         }
-
+                    }
                         RESULTS_ARCHIVE_DIR = '/mnt/nfs/coverity/results'
                         buildlib.doozer """${doozerOpts}
                                     ${params.IMAGES_FIELD=='IGNORE'?'':((params.IMAGES_FIELD=='INCLUDE'?'-i ':'-x ') + images)}
@@ -147,8 +146,7 @@ enabled_metadata=1
                                     ${params.IGNORE_WAIVED?'--ignore-waived':''}
                                     ${params.FORCE_ANALYSIS?'--force-analysis':''}
                                     "--https-proxy=${env.https_proxy}"
-                        """
-                    }
+                        """ 
                 }
             }
 
