@@ -78,5 +78,5 @@ def downloadRecursive(path, destination, skip_arm64) {
     if (skip_arm64) {
         skip_param = ",*arm64.tar.gz"
     }
-    sh " wget --recursive --no-parent --reject 'index.html*${skip_param},*?*' --no-directories --follow-tags a -l 1 --directory-prefix ${destination} ${path} "
+    sh " wget --recursive --no-parent --reject 'index.html*${skip_param},*?*' --no-directories -l 1 --directory-prefix ${destination} ${path} "
 }  
