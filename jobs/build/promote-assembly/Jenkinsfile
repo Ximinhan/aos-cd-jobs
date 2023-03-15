@@ -135,7 +135,6 @@ node {
     // It is a dict containing the information of the promoted release.
     // e.g. {"group": "openshift-4.8", "assembly": "4.8.28", "type": "standard", "name": "4.8.28", "content": {"s390x": {"pullspec": "quay.io/openshift-release-dev/ocp-release:4.8.28-s390x", "digest": "sha256:b33d11a797022f9394aca5f05f1fcba8faa3fcc607f0cdd6e75666f8f93e7141", "from_release": "registry.ci.openshift.org/ocp-s390x/release-s390x:4.8.0-0.nightly-s390x-2022-01-19-035735", "rhcos_version": "48.84.202201111102-0"}, "x86_64": {"pullspec": "quay.io/openshift-release-dev/ocp-release:4.8.28-x86_64", "digest": "sha256:ba1299680b542e46744307afc7effc15957a20592d88de4651610b52ed8be9a8", "from_release": "registry.ci.openshift.org/ocp/release:4.8.0-0.nightly-2022-01-19-035759", "rhcos_version": "48.84.202201102304-0"}, "ppc64le": {"pullspec": "quay.io/openshift-release-dev/ocp-release:4.8.28-ppc64le", "digest": "sha256:791790c88018eb9848765797f4348d4d5161dc342c61ec67d41770873e574a43", "from_release": "registry.ci.openshift.org/ocp-ppc64le/release-ppc64le:4.8.0-0.nightly-ppc64le-2022-01-19-035729", "rhcos_version": "48.84.202201102304-0"}}, "justifications": [], "advisory": 87060, "live_url": "https://access.redhat.com/errata/RHBA-2022:0172"}
     def release_info = [:]
-
     stage("promote release") {
         sh "rm -rf ./artcd_working && mkdir -p ./artcd_working"
         def cmd = [
@@ -164,6 +163,9 @@ node {
         if (params.PERMIT_PAYLOAD_OVERWRITE) {
             cmd << "--permit-overwrite"
         }
+        if (params.SKIP_MIRROR_BINARIES) {
+            cmd << "--skip-mirror-binaries"
+        }
         if (params.NO_MULTI) {
             cmd << "--no-multi"
         }
@@ -178,7 +180,11 @@ node {
         }
         echo "Will run ${cmd}"
         buildlib.withAppCiAsArtPublish() {
-            withCredentials([string(credentialsId: 'art-bot-slack-token', variable: 'SLACK_BOT_TOKEN'), string(credentialsId: 'jboss-jira-token', variable: 'JIRA_TOKEN')]) {
+            withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'creds_dev_registry.quay.io',
+                             usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD'],
+                             aws(credentialsId: 's3-art-srv-enterprise', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'),
+                             string(credentialsId: 'art-bot-slack-token', variable: 'SLACK_BOT_TOKEN'),
+                             string(credentialsId: 'jboss-jira-token', variable: 'JIRA_TOKEN')]) {
                 def out = sh(script: cmd.join(' '), returnStdout: true).trim()
                 echo "artcd returns:\n$out"
                 release_info = readJSON(text: out)
@@ -186,9 +192,7 @@ node {
         }
     }
 
-    buildlib.registry_quay_dev_login()  // chances are, earlier auth has expired
-
-    def justifications =release_info.justifications ?: []
+     /*
     def quay_url = "quay.io/openshift-release-dev/ocp-release"
     def client_type = 'ocp'
     if ((release_info.type == "candidate" && !release_info.assembly.startsWith('rc.')) || release_info.type == "custom" || release_info.type == "preview") {
@@ -217,6 +221,7 @@ node {
             }
         }
     }
+    */
 
     stage("sync RHCOS") {
         /*
@@ -310,6 +315,7 @@ node {
         }
     }
 
+    def justifications =release_info.justifications ?: []
     stage("channel prs") {
         if (release_info.type == "custom") {
             echo "Skipping PR creation for custom (hotfix) release."
