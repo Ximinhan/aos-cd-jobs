@@ -1,7 +1,7 @@
 import base64
 import logging
 import os
-
+from jenkinsapi.jenkins import Jenkins
 import aiohttp
 
 logger = logging.getLogger(__name__)
@@ -58,3 +58,11 @@ async def trigger_build_sync(build_version: str):
         job_path='job/triggered-builds/job/build-sync',
         params={'BUILD_VERSION': build_version}
     )
+
+def new_jenkins_client():
+    jenkins_server = "https://buildvm.hosts.prod.psi.bos.redhat.com:8443/"
+    try:
+        client = Jenkins(jenkins_server, username=os.environ['JENKINS_SERVICE_ACCOUNT'], password=os.environ['JENKINS_SERVICE_ACCOUNT_TOKEN'])
+    except Exception as e:
+        raise e
+    return client

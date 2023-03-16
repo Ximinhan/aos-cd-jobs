@@ -150,6 +150,7 @@ node {
             "promote",
             "--group=openshift-${params.VERSION}",
             "--assembly=${params.ASSEMBLY}",
+            "--mail-list-success=${params.MAIL_LIST_SUCCESS}",
         ]
         if (skipAttachedBugCheck) {
             cmd << "--skip-attached-bug-check"
@@ -165,6 +166,15 @@ node {
         }
         if (params.SKIP_MIRROR_BINARIES) {
             cmd << "--skip-mirror-binaries"
+        }
+        if (params.SKIP_SIGNING) {
+            cmd << "--skip-signing"
+        }
+        if (params.SKIP_CINCINNATI_PR_CREATION) {
+            cmd << "--skip-cincinnati-pr-creation"
+        }
+        if (params.SKIP_OTA_SLACK_NOTIFICATION) {
+            cmd << "--skip-ota-slack-notification"
         }
         if (params.NO_MULTI) {
             cmd << "--no-multi"
@@ -268,6 +278,7 @@ node {
         */
     }
 
+    /*
     stage("sign artifacts") {
         if (params.SKIP_SIGNING) {
             echo "Signing artifacts is skipped."
@@ -292,7 +303,7 @@ node {
             )
         }
     }
-
+    */
     stage("send release message") {
         if (release_info.type == "custom") {
             echo "Don't send release messages for a custom release."
@@ -314,6 +325,7 @@ node {
             release.sendReleaseCompleteMessage(["name": release_name], release_info.advisory ?: 0, release_info.live_url, arch)
         }
     }
+    /*
 
     def justifications =release_info.justifications ?: []
     stage("channel prs") {
@@ -349,7 +361,8 @@ node {
             ]
         )
     }
-
+    */
+    /*
     stage("validate RHSAs") {
         if (release_info.type == "custom" || release_info.type == "preview") {
             echo "Skipping RHSA check for custom (hotfix) or preview release."
@@ -408,7 +421,6 @@ node {
             ]
         )
     }
-
     stage("clean and mail") {
         dry_subject = ""
         if (params.DRY_RUN) { dry_subject = "[DRY RUN] "}
@@ -424,5 +436,7 @@ PullSpecs: ${pullspecs.join(",")}
         """);
         buildlib.cleanWorkspace()
     }
+    */
+    buildlib.cleanWorkspace()
 
 }
