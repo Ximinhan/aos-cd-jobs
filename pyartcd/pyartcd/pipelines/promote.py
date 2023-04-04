@@ -37,6 +37,7 @@ from semver import VersionInfo
 from tenacity import (RetryCallState, RetryError, retry,
                       retry_if_exception_type, retry_if_result,
                       stop_after_attempt, wait_fixed)
+import requests
 
 yaml = YAML(typ="safe")
 yaml.default_flow_style = False
@@ -482,6 +483,22 @@ class PromotePipeline:
         # we expect to publish to mirror
         CLIENT_MIRROR_DIR = f"{BASE_TO_MIRROR_DIR}/{arch}/clients/{client_type}/{release_name}"
         os.makedirs(CLIENT_MIRROR_DIR)
+
+        # Get cli pull-spec from the release
+        image_stat, cli_pull_spec = get_release_image_pullspec(f"{quay_url}:{from_release_tag}", "cli")
+        if image_stat == 0:  # image exists
+            image_info = get_release_image_info(cli_pull_spec)
+            # Retrieve the commit from image info
+            commit = image_info["config"]["config"]["Labels"]["io.openshift.build.commit.id"]
+            # URL to download the tarball from oc repo for a specific commit
+            url = f"https://github.com/openshift/oc/archive/{commit}.tar.gz"
+
+            # download the tarball
+            target_path = f"{CLIENT_MIRROR_DIR}/oc-source.tar.gz"
+            response = requests.get(url, stream=True)
+            if response.status_code == 200:
+                with open(target_path, "wb") as f:
+                    f.write(response.raw.read())
 
         if arch == 'x86_64':
             # oc image  extract requires an empty destination directory. So do this before extracting tools.
