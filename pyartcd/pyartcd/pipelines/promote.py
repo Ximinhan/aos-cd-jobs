@@ -442,7 +442,7 @@ class PromotePipeline:
             image_stat, oc_mirror_pullspec = get_release_image_pullspec(f"{quay_url}:{from_release_tag}", "oc-mirror")
             if image_stat == 0:  # image exist
                 # extract image to workdir, if failed it will raise error in function
-                extract_release_binary(oc_mirror_pullspec, f"--path=/usr/bin/oc-mirror:{CLIENT_MIRROR_DIR}")
+                extract_release_binary(oc_mirror_pullspec, [f"--path=/usr/bin/oc-mirror:{CLIENT_MIRROR_DIR}"])
                 # archive file
                 with tarfile.open(f"{CLIENT_MIRROR_DIR}/oc-mirror.tar.gz", "w:gz") as tar:
                     tar.add(f"{CLIENT_MIRROR_DIR}/oc-mirror")
