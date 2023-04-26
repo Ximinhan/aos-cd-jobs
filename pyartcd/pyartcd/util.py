@@ -13,7 +13,7 @@ from doozerlib import assembly, model, util as doozerutil
 from pyartcd import exectools, constants
 
 logger = logging.getLogger(__name__)
-
+goArches = ["amd64", "s390x", "ppc64le", "arm64", "multi"]
 
 def isolate_el_version_in_release(release: str) -> Optional[int]:
     """
@@ -267,3 +267,28 @@ async def is_build_permitted(version: str, data_path: str = constants.OCP_BUILD_
 
     # Fallback to default
     return True
+
+
+def get_release_controller_arch(release_stream_name):
+    arch = 'amd64'
+    streamNameComponents = release_stream_name.split('-')
+    for goArch in goArches:
+        if goArch in streamNameComponents:
+            arch = goArch
+    return arch
+
+
+def get_release_controller_url(release_stream_name):
+    arch = get_release_controller_arch(release_stream_name)
+    return f"https://{arch}.ocp.releases.ci.openshift.org"
+
+
+def log_dir_tree(path_to_dir):
+    for child in os.listdir(path_to_dir):
+        child_path = os.path.join(path_to_dir, child)
+        logger.info(child_path)
+
+
+def log_file_content(path_to_file):
+    with open(path_to_file, 'r') as f:
+        logger.info(f.read())
