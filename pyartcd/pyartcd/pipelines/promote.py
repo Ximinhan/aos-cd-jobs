@@ -430,7 +430,7 @@ class PromotePipeline:
                     with open(f"{CLIENT_MIRROR_DIR}/{source_name}-src-{from_release_tag}.tar.gz", "wb") as f:
                         f.write(response.raw.read())
                     # calc shasum
-                    with open(f"{CLIENT_MIRROR_DIR}/{source_name}-src-{from_release_tag}.gz", 'rb') as f:
+                    with open(f"{CLIENT_MIRROR_DIR}/{source_name}-src-{from_release_tag}.tar.gz", 'rb') as f:
                         shasum = hashlib.sha256(f.read()).hexdigest()
                     # write shasum to sha256sum.txt
                     with open(f"{CLIENT_MIRROR_DIR}/sha256sum.txt", 'a') as f:
