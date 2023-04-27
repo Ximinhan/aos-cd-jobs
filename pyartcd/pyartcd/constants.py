@@ -23,6 +23,6 @@ OCP_BUILD_DATA_URL = 'https://github.com/openshift-eng/ocp-build-data'
 MIRROR_CLIENTS = {
     "oc": "openshift-client",
     "installer": "openshift-installer",
-    "operator-registry": "opm",
+    "operator-framework-olm": "opm",
 }
 QUAY_RELEASE_REPO_URL = "quay.io/openshift-release-dev/ocp-release"
