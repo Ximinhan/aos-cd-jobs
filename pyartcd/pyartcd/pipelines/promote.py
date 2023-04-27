@@ -25,7 +25,7 @@ from pyartcd import constants, exectools, util
 from pyartcd.cli import cli, click_coroutine, pass_runtime
 from pyartcd.exceptions import VerificationError
 from pyartcd.jira import JIRAClient
-from pyartcd.oc import get_release_image_info
+from pyartcd.oc import get_release_image_info_from_pullspec
 from pyartcd.oc import get_release_image_info, get_release_image_pullspec, extract_release_binary, extract_release_client_tools
 from pyartcd.jenkins import trigger_build_microshift
 from pyartcd.runtime import Runtime
@@ -418,7 +418,7 @@ class PromotePipeline:
         for tarball in ["cli", "installer", "operator-registry"]:
             image_stat, cli_pull_spec = get_release_image_pullspec(f"{quay_url}:{from_release_tag}", tarball)
             if image_stat == 0:  # image exists
-                image_info = await get_release_image_info(cli_pull_spec)
+                image_info = await get_release_image_info_from_pullspec(cli_pull_spec)
                 # Retrieve the commit from image info
                 commit = image_info["config"]["config"]["Labels"]["io.openshift.build.commit.id"]
                 source_url = image_info["config"]["config"]["Labels"]["io.openshift.build.source-location"]
