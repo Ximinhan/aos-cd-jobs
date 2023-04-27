@@ -15,6 +15,7 @@ from pyartcd import exectools, constants
 logger = logging.getLogger(__name__)
 goArches = ["amd64", "s390x", "ppc64le", "arm64", "multi"]
 
+
 def isolate_el_version_in_release(release: str) -> Optional[int]:
     """
     Given a release field, determines whether is contains
