@@ -553,7 +553,7 @@ class PromotePipeline:
             CLIENT_MIRROR_DIR = f"{RELEASE_MIRROR_DIR}/{go_arch}"
             os.makedirs(CLIENT_MIRROR_DIR)
             # extract release clients tools
-            extract_release_client_tools(f"{constants.QUAY_URL}:{from_release_tag}", f"--to={CLIENT_MIRROR_DIR}", go_arch)
+            extract_release_client_tools(f"{constants.QUAY_RELEASE_REPO_URL}:{from_release_tag}", f"--to={CLIENT_MIRROR_DIR}", go_arch)
             # create symlink for clients
             self.create_symlink(path_to_dir=CLIENT_MIRROR_DIR, log_tree=True, log_shasum=True)
 
