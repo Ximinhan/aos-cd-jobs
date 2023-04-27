@@ -418,7 +418,7 @@ class PromotePipeline:
         for tarball in ["cli", "installer", "operator-registry"]:
             image_stat, cli_pull_spec = get_release_image_pullspec(f"{quay_url}:{from_release_tag}", tarball)
             if image_stat == 0:  # image exists
-                image_info = get_release_image_info(cli_pull_spec)
+                image_info = await get_release_image_info(cli_pull_spec)
                 # Retrieve the commit from image info
                 commit = image_info["config"]["config"]["Labels"]["io.openshift.build.commit.id"]
                 source_url = image_info["config"]["config"]["Labels"]["io.openshift.build.source-location"]
