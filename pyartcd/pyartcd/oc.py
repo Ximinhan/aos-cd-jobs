@@ -48,6 +48,7 @@ def common_oc_wrapper(cmd_result_name: str, cli_verb: str, oc_args: List[str], c
     # oc_args: args list of command
     # check_status: whether check status and print output in log
     # return_value: whether need return value sets
+    logger.info(f"run: oc {cli_verb} {' '.join(oc_args)}")
     with oc.tracking() as tracker:
         try:
             r = Result(cmd_result_name)
@@ -68,7 +69,7 @@ def common_oc_wrapper(cmd_result_name: str, cli_verb: str, oc_args: List[str], c
 def get_release_image_info_from_pullspec(pullspec: str):
     # oc image info --output=json <pullspec>
     cmd_args = ['info', "--output=json", pullspec]
-    common_oc_wrapper("single_image_info", "image", cmd_args, True, True)
+    return common_oc_wrapper("single_image_info", "image", cmd_args, True, True)
 
 
 def extract_release_binary(image_pullspec: str, path_args: List[str]):
@@ -80,7 +81,7 @@ def extract_release_binary(image_pullspec: str, path_args: List[str]):
 def get_release_image_pullspec(release_pullspec: str, image: str):
     # oc adm release info --image-for=<image> <pullspec>
     cmd_args = ['release', 'info', f'--image-for={image}', release_pullspec]
-    common_oc_wrapper("image_info_in_release", "adm", cmd_args, True, True)
+    return common_oc_wrapper("image_info_in_release", "adm", cmd_args, True, True)
 
 
 def extract_release_client_tools(release_pullspec: str, path_arg: str, arch: str):

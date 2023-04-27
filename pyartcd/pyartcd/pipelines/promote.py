@@ -418,7 +418,7 @@ class PromotePipeline:
         for tarball in ["cli", "installer", "operator-registry"]:
             image_stat, cli_pull_spec = get_release_image_pullspec(f"{quay_url}:{from_release_tag}", tarball)
             if image_stat == 0:  # image exists
-                image_info = get_release_image_info_from_pullspec(cli_pull_spec)
+                _, image_info = get_release_image_info_from_pullspec(cli_pull_spec)
                 # Retrieve the commit from image info
                 commit = image_info["config"]["config"]["Labels"]["io.openshift.build.commit.id"]
                 source_url = image_info["config"]["config"]["Labels"]["io.openshift.build.source-location"]
@@ -462,7 +462,7 @@ class PromotePipeline:
         await self.generate_changelog(release_name, CLIENT_MIRROR_DIR, minor)
 
         # extract opm binaries
-        operator_registry = get_release_image_pullspec(f"{quay_url}:{from_release_tag}", "operator-registry")
+        _, operator_registry = get_release_image_pullspec(f"{quay_url}:{from_release_tag}", "operator-registry")
         self.extract_opm(CLIENT_MIRROR_DIR, release_name, operator_registry, arch)
 
         util.log_dir_tree(CLIENT_MIRROR_DIR)  # print dir tree
