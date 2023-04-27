@@ -94,9 +94,9 @@ def extract_release_client_tools(release_pullspec: str, path_arg: str, arch: str
         try:
             r = Result("tools")
             if arch:
-                cmd_args = ["release", "extract", "--tools", "--command-os='*'", "-n=ocp", f"--filter-by-os={arch}", f"--to={path_arg}", f"--from={release_pullspec}"]
+                cmd_args = ["release", "extract", "--tools", "--command-os='*'", "-n=ocp", f"--filter-by-os={arch}", path_arg, f"--from={release_pullspec}"]
             else:
-                cmd_args = ["release", "extract", "--tools", "--command-os='*'", "-n=ocp", f"--to={path_arg}", f"--from={release_pullspec}"]
+                cmd_args = ["release", "extract", "--tools", "--command-os='*'", "-n=ocp", path_arg, f"--from={release_pullspec}"]
             r.add_action(oc.oc_action(oc.cur_context(), 'adm', cmd_args))
             r.fail_if("extract release binary failed")
         except Exception as e:
