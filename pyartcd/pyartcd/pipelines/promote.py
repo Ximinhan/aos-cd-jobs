@@ -401,7 +401,7 @@ class PromotePipeline:
         return justification
 
     async def publish_client(self, working_dir, from_release_tag, release_name, arch, client_type):
-        cmd = ["docker", "login", "-u", "openshift-release-dev+art_quay_dev", "-p", {os.environ['PASSWORD']}, "quay.io"]
+        cmd = ["docker", "login", "-u", "openshift-release-dev+art_quay_dev", "-p", f"{os.environ['PASSWORD']}", "quay.io"]
         await exectools.cmd_assert_async(cmd, env=os.environ.copy(), stdout=sys.stderr)
         _, minor = util.isolate_major_minor_in_group(self.group)
         quay_url = constants.QUAY_RELEASE_REPO_URL
@@ -538,7 +538,7 @@ class PromotePipeline:
                 f.write(f"{shasum} opm-{platform}-{release_name}.tar.gz")
 
     async def publish_multi_client(self, working_dir, from_release_tag, release_name, client_type):
-        cmd = ["docker", "login", "-u", "openshift-release-dev+art_quay_dev", "-p", {os.environ['PASSWORD']}, "quay.io"]
+        cmd = ["docker", "login", "-u", "openshift-release-dev+art_quay_dev", "-p", f"{os.environ['PASSWORD']}", "quay.io"]
         await exectools.cmd_assert_async(cmd, env=os.environ.copy(), stdout=sys.stderr)
         # Anything under this directory will be sync'd to the mirror
         BASE_TO_MIRROR_DIR = f"{working_dir}/to_mirror/openshift-v4"
