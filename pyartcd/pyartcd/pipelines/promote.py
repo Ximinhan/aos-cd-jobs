@@ -434,7 +434,7 @@ class PromotePipeline:
                         shasum = hashlib.sha256(f.read()).hexdigest()
                     # write shasum to sha256sum.txt
                     with open(f"{CLIENT_MIRROR_DIR}/sha256sum.txt", 'a') as f:
-                        f.write(f"{shasum} {source_name}-src-{from_release_tag}.tar.gz")
+                        f.write(f"{shasum} {source_name}-src-{from_release_tag}.tar.gz\n")
 
         if arch == 'x86_64':
             # oc image  extract requires an empty destination directory. So do this before extracting tools.
@@ -451,7 +451,7 @@ class PromotePipeline:
                     shasum = hashlib.sha256(f.read()).hexdigest()
                 # write shasum to sha256sum.txt
                 with open(f"{CLIENT_MIRROR_DIR}/sha256sum.txt", 'a') as f:
-                    f.write(f"{shasum} oc-mirror.tar.gz")
+                    f.write(f"{shasum} oc-mirror.tar.gz\n")
                 # remove oc-mirror
                 os.remove(f"{CLIENT_MIRROR_DIR}/oc-mirror")
 
@@ -535,7 +535,7 @@ class PromotePipeline:
             with open(f"opm-{platform}-{release_name}.tar.gz", 'rb') as f:  # calc shasum
                 shasum = hashlib.sha256(f.read()).hexdigest()
             with open("sha256sum.txt", 'a') as f:  # write shasum to sha256sum.txt
-                f.write(f"{shasum} opm-{platform}-{release_name}.tar.gz")
+                f.write(f"{shasum} opm-{platform}-{release_name}.tar.gz\n")
 
     async def publish_multi_client(self, working_dir, from_release_tag, release_name, client_type):
         cmd = ["docker", "login", "-u", "openshift-release-dev+art_quay_dev", "-p", f"{os.environ['PASSWORD']}", "quay.io"]
@@ -569,7 +569,7 @@ class PromotePipeline:
                 with open(os.path.join(root, "sha256sum.txt"), "rb") as f:
                     shasum = hashlib.sha256(f.read()).hexdigest()
                 with open(f"{RELEASE_MIRROR_DIR}/sha256sum.txt", 'a') as f:  # write shasum to sha256sum.txt
-                    f.write(f"{shasum} {dir}/sha256sum.txt")
+                    f.write(f"{shasum} {dir}/sha256sum.txt\n")
 
         # Publish the clients to our S3 bucket.
         await exectools.cmd_assert_async(f"aws s3 sync --no-progress --exact-timestamps {BASE_TO_MIRROR_DIR}/ s3://art-srv-enterprise/pub/openshift-v4/", stdout=sys.stderr)
