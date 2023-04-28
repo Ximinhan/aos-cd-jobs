@@ -523,16 +523,17 @@ class PromotePipeline:
             path_args.append(f'--path=/usr/bin/registry/{binary}:{client_mirror_dir}')
         extract_release_binary(operator_registry, path_args)
         # Compress binaries into tar.gz files and calculate sha256 digests
+        os.chdir(client_mirror_dir)
         for idx, binary in enumerate(binaries):
             platform = platforms[idx]
-            os.chmod(f"{client_mirror_dir}/{binary}", 0o755)
-            with tarfile.open(f"{client_mirror_dir}/opm-{platform}-{release_name}.tar.gz", "w:gz") as tar:  # archive file
-                tar.add(f"{client_mirror_dir}/{binary}")
-            os.remove(f"{client_mirror_dir}/{binary}")  # remove opm binary
-            os.symlink(f'{client_mirror_dir}/opm-{platform}-{release_name}.tar.gz', f'{client_mirror_dir}/opm-{platform}.tar.gz')  # create symlink
-            with open(f"{client_mirror_dir}/opm-{platform}-{release_name}.tar.gz", 'rb') as f:  # calc shasum
+            os.chmod(binary, 0o755)
+            with tarfile.open(f"opm-{platform}-{release_name}.tar.gz", "w:gz") as tar:  # archive file
+                tar.add(binary)
+            os.remove(binary)  # remove opm binary
+            os.symlink(f'opm-{platform}-{release_name}.tar.gz', f'opm-{platform}.tar.gz')  # create symlink
+            with open(f"opm-{platform}-{release_name}.tar.gz", 'rb') as f:  # calc shasum
                 shasum = hashlib.sha256(f.read()).hexdigest()
-            with open(f"{client_mirror_dir}/sha256sum.txt", 'a') as f:  # write shasum to sha256sum.txt
+            with open("sha256sum.txt", 'a') as f:  # write shasum to sha256sum.txt
                 f.write(f"{shasum} opm-{platform}-{release_name}.tar.gz\n")
 
     async def publish_multi_client(self, working_dir, from_release_tag, release_name, client_type):
@@ -575,6 +576,7 @@ class PromotePipeline:
     def create_symlink(self, path_to_dir, log_tree, log_shasum):
         # External consumers want a link they can rely on.. e.g. .../latest/openshift-client-linux.tgz .
         # So whatever we extract, remove the version specific info and make a symlink with that name.
+        os.chdir(path_to_dir)
         for f in os.listdir(path_to_dir):
             if f.endswith(('.tar.gz', '.bz', '.zip', '.tgz')):
                 # Is this already a link?
@@ -593,7 +595,7 @@ class PromotePipeline:
                 if match:
                     new_name = match.group(1) + match.group(2) + '.' + match.group(4)
                     # Create a symlink like openshift-client-linux.tgz => openshift-client-linux-4.3.0-0.nightly-2019-12-06-161135.tar.gz
-                    os.symlink(f"{path_to_dir}/{f}", f"{path_to_dir}/{new_name}")
+                    os.symlink(f, new_name)
 
             if log_tree:
                 util.log_dir_tree(path_to_dir)  # print dir tree
