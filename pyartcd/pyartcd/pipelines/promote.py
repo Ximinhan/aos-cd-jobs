@@ -485,7 +485,7 @@ class PromotePipeline:
             # If the previous minor is not yet GA, look for the latest fc/rc/ec. If the previous minor is GA, this should
             # always return 4.m.0.
             url = 'https://amd64.ocp.releases.ci.openshift.org/api/v1/releasestream/4-stable/latest'
-            full_url = f"{url}?{urllib.parse.urlencode({'in': f'=>4.{prevMinor}.0-0 <4.{prevMinor}.1'})}"
+            full_url = f"{url}?in=>4.{prevMinor}.0-0+<4.{prevMinor}.1"
             # See if the previous minor has GA'd yet; e.g. https://amd64.ocp.releases.ci.openshift.org/releasestream/4-stable/release/4.8.0
             async with aiohttp.ClientSession() as session:
                 async with session.get(full_url) as response:
