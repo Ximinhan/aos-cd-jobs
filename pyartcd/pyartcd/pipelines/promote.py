@@ -576,6 +576,7 @@ class PromotePipeline:
     def create_symlink(self, path_to_dir, log_tree, log_shasum):
         # External consumers want a link they can rely on.. e.g. .../latest/openshift-client-linux.tgz .
         # So whatever we extract, remove the version specific info and make a symlink with that name.
+        os.chdir(path_to_dir)
         for f in os.listdir(path_to_dir):
             if f.endswith(('.tar.gz', '.bz', '.zip', '.tgz')):
                 # Is this already a link?
