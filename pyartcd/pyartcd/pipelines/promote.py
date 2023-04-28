@@ -531,7 +531,7 @@ class PromotePipeline:
             with tarfile.open(f"opm-{platform}-{release_name}.tar.gz", "w:gz") as tar:  # archive file
                 tar.add(binary)
             os.remove(binary)  # remove oc-mirror
-            os.symlink(f'opm-{platform}-{release_name}.tar.gz', f'opm-{platform}.tar.gz')  # create symlink
+            os.symlink(f'opm-{platform}.tar.gz', f'opm-{platform}-{release_name}.tar.gz')  # create symlink
             with open(f"opm-{platform}-{release_name}.tar.gz", 'rb') as f:  # calc shasum
                 shasum = hashlib.sha256(f.read()).hexdigest()
             with open("sha256sum.txt", 'a') as f:  # write shasum to sha256sum.txt
@@ -595,7 +595,7 @@ class PromotePipeline:
                 if match:
                     new_name = match.group(1) + match.group(2) + '.' + match.group(4)
                     # Create a symlink like openshift-client-linux.tgz => openshift-client-linux-4.3.0-0.nightly-2019-12-06-161135.tar.gz
-                    os.symlink(f, new_name)
+                    os.symlink(new_name, f)
 
             if log_tree:
                 util.log_dir_tree(path_to_dir)  # print dir tree
