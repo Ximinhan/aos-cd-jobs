@@ -490,8 +490,7 @@ class PromotePipeline:
             async with aiohttp.ClientSession() as session:
                 async with session.get(full_url) as response:
                     text = await response.json()
-                    data = json.load(text)
-                    prevGA = data['name']
+                    prevGA = text['name']
                 async with session.get(f"{rcURL}/releasestream/{stableStream}/release/{prevGA}") as response:
                     if response.status == 200:
                         # If prevGA is known to the release controller, compute the changelog html
