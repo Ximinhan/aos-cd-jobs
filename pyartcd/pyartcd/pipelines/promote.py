@@ -573,9 +573,10 @@ class PromotePipeline:
                 with open(f"{RELEASE_MIRROR_DIR}/sha256sum.txt", 'a') as f:  # write shasum to sha256sum.txt
                     f.write(f"{shasum}  {dir}/sha256sum.txt\n")
         os.chdir(current_path) # return to parent path
+        util.log_dir_tree(current_path)
 
         # Publish the clients to our S3 bucket.
-        await exectools.cmd_assert_async(f"aws s3 sync --no-progress --exact-timestamps {BASE_TO_MIRROR_DIR}/ s3://art-srv-enterprise/pub/openshift-v4/", stdout=sys.stderr)
+        # await exectools.cmd_assert_async(f"aws s3 sync --no-progress --exact-timestamps {BASE_TO_MIRROR_DIR}/ s3://art-srv-enterprise/pub/openshift-v4/", stdout=sys.stderr)
 
     def create_symlink(self, path_to_dir, log_tree, log_shasum):
         # External consumers want a link they can rely on.. e.g. .../latest/openshift-client-linux.tgz .
