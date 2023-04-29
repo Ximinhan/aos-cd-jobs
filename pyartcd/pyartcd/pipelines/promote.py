@@ -547,7 +547,7 @@ class PromotePipeline:
         RELEASE_MIRROR_DIR = f"{BASE_TO_MIRROR_DIR}/multi/clients/{client_type}/{release_name}"
         current_path = os.getcwd()
 
-        for go_arch in util.goArches:
+        for go_arch in util.go_arches:
             if go_arch == "multi":
                 continue
             # From the newly built release, extract the client tools into the workspace following the directory structure
