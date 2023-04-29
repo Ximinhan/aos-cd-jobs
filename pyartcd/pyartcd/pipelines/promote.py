@@ -108,8 +108,8 @@ class PromotePipeline:
         logger.info("Release name: %s", release_name)
 
         self._slack_client.bind_channel(release_name)
-        slack_response = await self._slack_client.say(f"Promoting release `{release_name}` @release-artists")
-        slack_thread = slack_response["message"]["ts"]
+        #slack_response = await self._slack_client.say(f"Promoting release `{release_name}` @release-artists")
+        #slack_thread = slack_response["message"]["ts"]
 
         justifications = []
         try:
@@ -253,7 +253,7 @@ class PromotePipeline:
             pullspecs_repr = ", ".join(f"{arch}: {pullspecs[arch]}" for arch in sorted(pullspecs.keys()))
             if not tag_stable:
                 self._logger.warning("Release %s will not appear on release controllers. Pullspecs: %s", release_name, pullspecs_repr)
-                await self._slack_client.say(f"Release {release_name} is ready. It will not appear on the release controllers. Please tell the user to manually pull the release images: {pullspecs_repr}", slack_thread)
+                #await self._slack_client.say(f"Release {release_name} is ready. It will not appear on the release controllers. Please tell the user to manually pull the release images: {pullspecs_repr}", slack_thread)
             else:  # Wait for release images to be accepted by the release controllers
                 self._logger.info("All release images for %s have been successfully promoted. Pullspecs: %s", release_name, pullspecs_repr)
 
@@ -269,7 +269,7 @@ class PromotePipeline:
 
                 if not all(accepted):
                     self._logger.info("Waiting for release images for %s to be accepted by the release controller...", release_name)
-                    await self._slack_client.say(f"Release {release_name} has been tagged on release controller, but is not accepted yet. Waiting.", slack_thread)
+                    #await self._slack_client.say(f"Release {release_name} has been tagged on release controller, but is not accepted yet. Waiting.", slack_thread)
                     tasks = []
                     for arch, release_info in release_infos.items():
                         release_stream = self._get_release_stream_name(assembly_type, arch)
@@ -288,7 +288,7 @@ class PromotePipeline:
                 self._logger.info("All release images for %s have been accepted by the release controllers.", release_name)
 
                 message = f"Release `{release_name}` has been accepted by the release controllers."
-                await self._slack_client.say(message, slack_thread)
+                #await self._slack_client.say(message, slack_thread)
 
                 # Send image list
                 if not image_advisory:
@@ -320,7 +320,7 @@ class PromotePipeline:
             self._logger.exception(err)
             error_message = f"Error promoting release {release_name}: {err}\n {traceback.format_exc()}"
             message = f"Promoting release {release_name} failed with: {error_message}"
-            await self._slack_client.say(message, slack_thread)
+            #await self._slack_client.say(message, slack_thread)
             raise
 
         # Print release infos to console
@@ -377,7 +377,7 @@ class PromotePipeline:
                         await self.publish_client(self._working_dir, f"{release_name}-{arch}", release_name, arch, client_type)
                     else:
                         await self.publish_multi_client(self._working_dir, f"{release_name}-{arch}", release_name, client_type)
-
+        exit(0) #exit here for test
         json.dump(data, sys.stdout)
 
     @staticmethod
@@ -469,7 +469,7 @@ class PromotePipeline:
         util.log_file_content(f"{CLIENT_MIRROR_DIR}/sha256sum.txt")  # print sha256sum.txt
 
         # Publish the clients to our S3 bucket.
-        await exectools.cmd_assert_async(f"aws s3 sync --no-progress --exact-timestamps {BASE_TO_MIRROR_DIR}/ s3://art-srv-enterprise/pub/openshift-v4/", stdout=sys.stderr)
+        #await exectools.cmd_assert_async(f"aws s3 sync --no-progress --exact-timestamps {BASE_TO_MIRROR_DIR}/ s3://art-srv-enterprise/pub/openshift-v4/", stdout=sys.stderr)
 
     async def generate_changelog(self, release_name, client_mirror_dir, minor):
         try:
@@ -513,6 +513,7 @@ class PromotePipeline:
             raise e
 
     def extract_opm(self, client_mirror_dir, release_name, operator_registry, arch):
+        current_path = os.getcwd()
         binaries = ['opm']
         platforms = ['linux']
         if arch == 'x86_64':  # For x86_64, we have binaries for macOS and Windows
@@ -534,7 +535,8 @@ class PromotePipeline:
             with open(f"opm-{platform}-{release_name}.tar.gz", 'rb') as f:  # calc shasum
                 shasum = hashlib.sha256(f.read()).hexdigest()
             with open("sha256sum.txt", 'a') as f:  # write shasum to sha256sum.txt
-                f.write(f"{shasum} opm-{platform}-{release_name}.tar.gz\n")
+                f.write(f"{shasum}  opm-{platform}-{release_name}.tar.gz\n")
+        os.chdir(current_path)
 
     async def publish_multi_client(self, working_dir, from_release_tag, release_name, client_type):
         cmd = ["docker", "login", "-u", "openshift-release-dev+art_quay_dev", "-p", f"{os.environ['PASSWORD']}", "quay.io"]
@@ -543,6 +545,7 @@ class PromotePipeline:
         BASE_TO_MIRROR_DIR = f"{working_dir}/to_mirror/openshift-v4"
         shutil.rmtree(BASE_TO_MIRROR_DIR, ignore_errors=True)
         RELEASE_MIRROR_DIR = f"{BASE_TO_MIRROR_DIR}/multi/clients/{client_type}/{release_name}"
+        current_path = os.getcwd()
 
         for go_arch in util.goArches:
             if go_arch == "multi":
@@ -568,7 +571,8 @@ class PromotePipeline:
                 with open(os.path.join(root, "sha256sum.txt"), "rb") as f:
                     shasum = hashlib.sha256(f.read()).hexdigest()
                 with open(f"{RELEASE_MIRROR_DIR}/sha256sum.txt", 'a') as f:  # write shasum to sha256sum.txt
-                    f.write(f"{shasum} {dir}/sha256sum.txt\n")
+                    f.write(f"{shasum}  {dir}/sha256sum.txt\n")
+        os.chdir(current_path) # return to parent path
 
         # Publish the clients to our S3 bucket.
         await exectools.cmd_assert_async(f"aws s3 sync --no-progress --exact-timestamps {BASE_TO_MIRROR_DIR}/ s3://art-srv-enterprise/pub/openshift-v4/", stdout=sys.stderr)
@@ -576,8 +580,9 @@ class PromotePipeline:
     def create_symlink(self, path_to_dir, log_tree, log_shasum):
         # External consumers want a link they can rely on.. e.g. .../latest/openshift-client-linux.tgz .
         # So whatever we extract, remove the version specific info and make a symlink with that name.
-        os.chdir(path_to_dir)
-        for f in os.listdir(path_to_dir):
+        current_path = os.getcwd() # /mnt/workspace/jenkins/working/build_promote-assembly
+        os.chdir(path_to_dir) # path_to_dir is relative path artcd_working/to_mirror/openshift-v4/aarch64/clients/ocp/4.13.0-rc.6
+        for f in os.listdir():
             if f.endswith(('.tar.gz', '.bz', '.zip', '.tgz')):
                 # Is this already a link?
                 if os.path.islink(f):
@@ -597,10 +602,11 @@ class PromotePipeline:
                     # Create a symlink like openshift-client-linux.tgz => openshift-client-linux-4.3.0-0.nightly-2019-12-06-161135.tar.gz
                     os.symlink(f, new_name)
 
-            if log_tree:
-                util.log_dir_tree(path_to_dir)  # print dir tree
-            if log_shasum:
-                util.log_file_content(f"{path_to_dir}/sha256sum.txt")  # print sha256sum.txt
+        os.chdir(current_path) # switch back to work_dir
+        if log_tree:
+            util.log_dir_tree(f"{current_path}/{path_to_dir}")  # print dir tree
+        if log_shasum:
+            util.log_file_content(f"{current_path}/{path_to_dir}/sha256sum.txt")  # print sha256sum.txt
 
     async def change_advisory_state(self, advisory: int, state: str):
         cmd = [
