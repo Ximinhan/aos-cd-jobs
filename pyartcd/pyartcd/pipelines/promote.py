@@ -562,15 +562,15 @@ class PromotePipeline:
         # Create a master sha256sum.txt including the sha256sum.txt files from all subarches
         # This is the file we will sign -- trust is transitive to the subarches
         os.chdir(RELEASE_MIRROR_DIR)
-        for dir in os.listdir(RELEASE_MIRROR_DIR):
-            if not os.path.isdir(os.path.join(RELEASE_MIRROR_DIR, dir)):
+        for dir in os.listdir():
+            if not os.path.isdir(dir):
                 continue
-            for root, dirs, files in os.walk(os.path.join(RELEASE_MIRROR_DIR, dir)):
+            for root, dirs, files in os.walk(dir):
                 if "sha256sum.txt" not in files:
                     continue
-                with open(os.path.join(root, "sha256sum.txt"), "rb") as f:
+                with open(f"{root}/sha256sum.txt", "rb") as f:
                     shasum = hashlib.sha256(f.read()).hexdigest()
-                with open(f"{RELEASE_MIRROR_DIR}/sha256sum.txt", 'a') as f:  # write shasum to sha256sum.txt
+                with open("sha256sum.txt", 'a') as f:  # write shasum to sha256sum.txt
                     f.write(f"{shasum}  {dir}/sha256sum.txt\n")
         os.chdir(current_path) # return to parent path
         util.log_dir_tree(current_path)
