@@ -22,7 +22,7 @@ OCP_BUILD_DATA_URL = 'https://github.com/openshift-eng/ocp-build-data'
 # The client name mapping in nightly with name on mirror
 MIRROR_CLIENTS = {
     "oc": "openshift-client",
-    "installer": "openshift-installer",
+    "installer": "openshift-install",
     "operator-framework-olm": "opm",
 }
 QUAY_RELEASE_REPO_URL = "quay.io/openshift-release-dev/ocp-release"
