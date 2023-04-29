@@ -69,7 +69,7 @@ def common_oc_wrapper(cmd_result_name: str, cli_verb: str, oc_args: List[str], c
 def get_release_image_info_from_pullspec(pullspec: str):
     # oc image info --output=json <pullspec>
     cmd_args = ['info', "--output=json", pullspec]
-    res, out = common_oc_wrapper("single_image_info", "image", cmd_args, True, True)
+    res, out = common_oc_wrapper("single_image_info", "image", cmd_args, False, True)
     return res, json.loads(out)
 
 
@@ -82,7 +82,7 @@ def extract_release_binary(image_pullspec: str, path_args: List[str]):
 def get_release_image_pullspec(release_pullspec: str, image: str):
     # oc adm release info --image-for=<image> <pullspec>
     cmd_args = ['release', 'info', f'--image-for={image}', release_pullspec]
-    return common_oc_wrapper("image_info_in_release", "adm", cmd_args, True, True)
+    return common_oc_wrapper("image_info_in_release", "adm", cmd_args, False, True)
 
 
 def extract_release_client_tools(release_pullspec: str, path_arg: str, arch: str):

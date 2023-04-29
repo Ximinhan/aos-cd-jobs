@@ -377,7 +377,7 @@ class PromotePipeline:
                         await self.publish_client(self._working_dir, f"{release_name}-{arch}", release_name, arch, client_type)
                     else:
                         await self.publish_multi_client(self._working_dir, f"{release_name}-{arch}", release_name, client_type)
-        exit(0) #exit here for test
+        exit(1) #exit here for test
         json.dump(data, sys.stdout)
 
     @staticmethod
@@ -407,7 +407,7 @@ class PromotePipeline:
         quay_url = constants.QUAY_RELEASE_REPO_URL
         # Anything under this directory will be sync'd to the mirror
         BASE_TO_MIRROR_DIR = f"{working_dir}/to_mirror/openshift-v4"
-        shutil.rmtree(BASE_TO_MIRROR_DIR, ignore_errors=True)
+        shutil.rmtree(f"{BASE_TO_MIRROR_DIR}/{arch}", ignore_errors=True)
 
         # From the newly built release, extract the client tools into the workspace following the directory structure
         # we expect to publish to mirror
@@ -434,7 +434,7 @@ class PromotePipeline:
                         shasum = hashlib.sha256(f.read()).hexdigest()
                     # write shasum to sha256sum.txt
                     with open(f"{CLIENT_MIRROR_DIR}/sha256sum.txt", 'a') as f:
-                        f.write(f"{shasum} {source_name}-src-{from_release_tag}.tar.gz\n")
+                        f.write(f"{shasum}  {source_name}-src-{from_release_tag}.tar.gz\n")
 
         if arch == 'x86_64':
             # oc image  extract requires an empty destination directory. So do this before extracting tools.
@@ -451,7 +451,7 @@ class PromotePipeline:
                     shasum = hashlib.sha256(f.read()).hexdigest()
                 # write shasum to sha256sum.txt
                 with open(f"{CLIENT_MIRROR_DIR}/sha256sum.txt", 'a') as f:
-                    f.write(f"{shasum} oc-mirror.tar.gz\n")
+                    f.write(f"{shasum}  oc-mirror.tar.gz\n")
                 # remove oc-mirror
                 os.remove(f"{CLIENT_MIRROR_DIR}/oc-mirror")
 
@@ -543,7 +543,7 @@ class PromotePipeline:
         await exectools.cmd_assert_async(cmd, env=os.environ.copy(), stdout=sys.stderr)
         # Anything under this directory will be sync'd to the mirror
         BASE_TO_MIRROR_DIR = f"{working_dir}/to_mirror/openshift-v4"
-        shutil.rmtree(BASE_TO_MIRROR_DIR, ignore_errors=True)
+        shutil.rmtree(f"{BASE_TO_MIRROR_DIR}/multi", ignore_errors=True)
         RELEASE_MIRROR_DIR = f"{BASE_TO_MIRROR_DIR}/multi/clients/{client_type}/{release_name}"
         current_path = os.getcwd()
 
