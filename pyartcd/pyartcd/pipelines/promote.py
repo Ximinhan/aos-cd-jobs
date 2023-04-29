@@ -471,7 +471,7 @@ class PromotePipeline:
         util.log_file_content(f"{CLIENT_MIRROR_DIR}/sha256sum.txt")  # print sha256sum.txt
 
         # Publish the clients to our S3 bucket.
-        #await exectools.cmd_assert_async(f"aws s3 sync --no-progress --exact-timestamps {BASE_TO_MIRROR_DIR}/ s3://art-srv-enterprise/pub/openshift-v4/", stdout=sys.stderr)
+        #await exectools.cmd_assert_async(f"aws s3 sync --no-progress --exact-timestamps {BASE_TO_MIRROR_DIR}/{arch} s3://art-srv-enterprise/pub/openshift-v4/{arch}", stdout=sys.stderr)
 
     async def generate_changelog(self, release_name, client_mirror_dir, minor):
         try:
@@ -576,7 +576,7 @@ class PromotePipeline:
         util.log_dir_tree(current_path)
 
         # Publish the clients to our S3 bucket.
-        # await exectools.cmd_assert_async(f"aws s3 sync --no-progress --exact-timestamps {BASE_TO_MIRROR_DIR}/ s3://art-srv-enterprise/pub/openshift-v4/", stdout=sys.stderr)
+        # await exectools.cmd_assert_async(f"aws s3 sync --no-progress --exact-timestamps {BASE_TO_MIRROR_DIR}/{arch} s3://art-srv-enterprise/pub/openshift-v4/{arch}", stdout=sys.stderr)
 
     def create_symlink(self, path_to_dir, log_tree, log_shasum):
         # External consumers want a link they can rely on.. e.g. .../latest/openshift-client-linux.tgz .
