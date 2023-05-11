@@ -378,9 +378,9 @@ class PromotePipeline:
                     logger.info(f"[DRY RUN] Would have sync'd client binaries for {constants.QUAY_RELEASE_REPO_URL}:{release_name}-{arch} to mirror {arch}/clients/{client_type}/{release_name}.")
                 else:
                     if arch != "multi":
-                        await self.publish_client(self._working_dir, f"{release_name}-{arch}", release_name, arch, client_type)
+                        await self.publish_client(self._working_dir, f"{release_name}-{arch}", data["content"][arch]['metadata']['version'], arch, client_type)
                     else:
-                        await self.publish_multi_client(self._working_dir, f"{release_name}-{arch}", release_name, client_type)
+                        await self.publish_multi_client(self._working_dir, f"{release_name}-{arch}", data["content"][arch]['metadata']['version'], client_type)
         json.dump(data, sys.stdout)
 
     @staticmethod
