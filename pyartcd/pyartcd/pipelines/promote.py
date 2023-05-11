@@ -447,17 +447,20 @@ class PromotePipeline:
             if image_stat == 0:  # image exist
                 # extract image to workdir, if failed it will raise error in function
                 extract_release_binary(oc_mirror_pullspec, [f"--path=/usr/bin/oc-mirror:{CLIENT_MIRROR_DIR}"])
+                current_path = os.getcwd()
+                os.chdir(CLIENT_MIRROR_DIR)
                 # archive file
-                with tarfile.open(f"{CLIENT_MIRROR_DIR}/oc-mirror.tar.gz", "w:gz") as tar:
-                    tar.add(f"{CLIENT_MIRROR_DIR}/oc-mirror")
+                with tarfile.open(f"oc-mirror.tar.gz", "w:gz") as tar:
+                    tar.add(f"oc-mirror")
                 # calc shasum
-                with open(f"{CLIENT_MIRROR_DIR}/oc-mirror.tar.gz", 'rb') as f:
+                with open(f"oc-mirror.tar.gz", 'rb') as f:
                     shasum = hashlib.sha256(f.read()).hexdigest()
                 # write shasum to sha256sum.txt
-                with open(f"{CLIENT_MIRROR_DIR}/sha256sum.txt", 'a') as f:
+                with open(f"sha256sum.txt", 'a') as f:
                     f.write(f"{shasum}  oc-mirror.tar.gz\n")
                 # remove oc-mirror
-                os.remove(f"{CLIENT_MIRROR_DIR}/oc-mirror")
+                os.remove(f"oc-mirror")
+                os.chdir(current_path)
 
         # create symlink for clients
         self.create_symlink(CLIENT_MIRROR_DIR, False, False)
