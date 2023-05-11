@@ -366,6 +366,7 @@ class PromotePipeline:
         client_type = "ocp"
         if (assembly_type == assembly.AssemblyTypes.CANDIDATE and not self.assembly.startswith('rc.')) or assembly_type in [assembly.AssemblyTypes.CUSTOM, assembly.AssemblyTypes.PREVIEW]:
             client_type = "ocp-dev-preview"
+        data['client_type'] = client_type
         # mirror binaries
         if not self.skip_mirror_binaries:
             # make sure login to quay

@@ -270,10 +270,10 @@ node {
                 signature_name: "signature-1",
                 dry_run: params.DRY_RUN,
                 env: "prod",
-                key_name: client_type=='ocp'?"redhatrelease2":"beta2",
+                key_name: release_info.client_type=='ocp'?"redhatrelease2":"beta2",
                 arch: arch,
                 digest: payloadDigest,
-                client_type: client_type,
+                client_type: release_info.client_type,
                 product: "openshift",
             )
         }
