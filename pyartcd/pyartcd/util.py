@@ -1,15 +1,17 @@
+import asyncio
+import logging
 import os
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-import logging
 
 import aiofiles
 import yaml
-
 from doozerlib import assembly, model, util as doozerutil
-from pyartcd import exectools, constants
+from errata_tool import ErrataConnector
+
+from pyartcd import exectools, constants, jenkins
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,21 @@ def isolate_major_minor_in_group(group_name: str) -> Tuple[int, int]:
     return int(match[1]), int(match[2])
 
 
+def is_greenwave_all_pass_on_advisory(advisory_id: int) -> bool:
+    """
+    Use /api/v1/external_tests API to check if builds on advisory have failed greenwave_cvp test
+    If the tests all pass then the data field of the return value will be empty
+    Return True, If all greenwave test passed on advisory
+    Return False, If there are failed test on advisory
+    """
+    logger.info(f"Check failed greenwave tests on {advisory_id}")
+    result = ErrataConnector()._get(f'/api/v1/external_tests?filter[test_type]=greenwave_cvp&filter[status]=FAILED&filter[active]=true&page[size]=1000&filter[errata_id]={advisory_id}')
+    if result.get('data', []):
+        logger.warning(f"Some greenwave tests on {advisory_id} failed with {result}")
+        return False
+    return True
+
+
 async def load_group_config(group: str, assembly: str, env=None) -> Dict:
     cmd = [
         "doozer",
@@ -92,6 +109,11 @@ def get_assembly_promotion_permits(releases_config: Dict, assembly_name: str):
 
 def get_release_name_for_assembly(group_name: str, releases_config: Dict, assembly_name: str):
     return doozerutil.get_release_name_for_assembly(group_name, model.Model(releases_config), assembly_name)
+
+
+def is_rpm_pinned(releases_config: Dict, assembly_name: str, rpm_name: str):
+    pinned_rpms = assembly._assembly_config_struct(model.Model(releases_config), assembly_name, 'members', {'rpms': []})['rpms']
+    return any(rpm['distgit_key'] == rpm_name for rpm in pinned_rpms)
 
 
 async def kinit():
@@ -191,7 +213,15 @@ def is_manual_build() -> bool:
     Be aware that Jenkins pipeline need to pass this var by enclosing the code in a wrap([$class: 'BuildUser']) {} block
     """
 
-    return os.getenv('BUILD_USER_EMAIL') is not None
+    build_user_email = os.getenv('BUILD_USER_EMAIL')
+    logger.info('Found BUILD_USER_EMAIL=%s', build_user_email)
+
+    if build_user_email is not None:
+        logger.info('Considering this a manual build')
+        return True
+
+    logger.info('Considering this a scheduled build')
+    return False
 
 
 async def is_build_permitted(version: str, data_path: str = constants.OCP_BUILD_DATA_URL,
@@ -206,6 +236,7 @@ async def is_build_permitted(version: str, data_path: str = constants.OCP_BUILD_
 
     # Get 'freeze_automation' flag
     freeze_automation = await get_freeze_automation(version, data_path, doozer_working)
+    logger.info('Group freeze automation flag is set to: "%s"', freeze_automation)
 
     # Check for frozen automation
     # yaml parses unquoted "yes" as a boolean... accept either
@@ -221,14 +252,49 @@ async def is_build_permitted(version: str, data_path: str = constants.OCP_BUILD_
 
     # Check if group can run on weekends
     if freeze_automation == 'weekdays':
-        # The build is permitted only if current day is saturday or sunday
-        weekday = datetime.today().strftime("%A")
-        if weekday in ['Saturday', 'Sunday'] or is_manual_build():
+        # Manual builds are always permitted
+        if is_manual_build():
+            logger.info('Current build is permitted as it has been triggered manually')
             return True
 
-        logger.info('Scheduled builds for %s are permitted only on weekends, and today is %s',
-                    version, weekday)
+        # Check current day of the week
+        weekday = datetime.today().strftime("%A")
+        if weekday in ['Saturday', 'Sunday']:
+            logger.info('Automation is permitted during weekends, and today is %s', weekday)
+            return True
+
+        logger.info('Scheduled builds for %s are permitted only on weekends, and today is %s', version, weekday)
         return False
 
     # Fallback to default
     return True
+
+
+async def sync_images(version: str, assembly: str, operator_nvrs: list,
+                      doozer_data_path: str = constants.OCP_BUILD_DATA_URL, doozer_data_gitref: str = ''):
+    """
+    Run an image sync after a build. This will mirror content from internal registries to quay.
+    After a successful sync an image stream is updated with the new tags and pullspecs.
+    Also update the app registry with operator manifests.
+    If operator_nvrs is given, will only build manifests for specified operator NVRs.
+    If builds don't succeed, email and set result to UNSTABLE.
+    """
+
+    if assembly == 'test':
+        logger.warning('Skipping build-sync job for test assembly')
+    else:
+        jenkins.start_build_sync(
+            build_version=version,
+            assembly=assembly,
+            doozer_data_path=doozer_data_path,
+            doozer_data_gitref=doozer_data_gitref
+        )
+
+    if operator_nvrs:
+        jenkins.start_olm_bundle(
+            build_version=version,
+            assembly=assembly,
+            operator_nvrs=operator_nvrs,
+            doozer_data_path=doozer_data_path,
+            doozer_data_gitref=doozer_data_gitref
+        )

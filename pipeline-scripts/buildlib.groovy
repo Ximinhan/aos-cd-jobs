@@ -7,6 +7,7 @@ slacklib = commonlib.slacklib
 
 GITHUB_URLS = [:]
 GITHUB_BASE_PATHS = [:]
+GITHUB_BASE = "git@github.com:openshift"
 
 def initialize(test=false, regAws=false) {
     this.proxy_setup()
@@ -20,9 +21,6 @@ def initialize(test=false, regAws=false) {
             this.registry_login()
         }
     }
-
-    GITHUB_URLS = [:]
-    GITHUB_BASE_PATHS = [:]
 }
 
 // Ensure that calls to "oc" within the passed in block will interact with
@@ -146,7 +144,13 @@ def setup_venv(use_python38=false) {
     ELLIOTT_BIN = "${VIRTUAL_ENV}/bin/python3 art-tools/elliott/elliott"
 
     if (use_python38) {
-        commonlib.shell(script: "scl enable rh-python38 -- python3 -m venv --system-site-packages --symlinks ${VIRTUAL_ENV}")
+        commonlib.shell(script: """
+        if [[ -f /bin/scl ]]; then
+            scl enable rh-python38 -- python3 -m venv --system-site-packages --symlinks ${VIRTUAL_ENV}
+        else
+            python3.8 -m venv --system-site-packages --symlinks ${VIRTUAL_ENV}
+        fi
+        """)
     } else {
         commonlib.shell(script: "python3 -m venv --system-site-packages --symlinks ${VIRTUAL_ENV}")
     }
@@ -617,59 +621,8 @@ def args_to_string(Object... args) {
     return s
 }
 
-/**
- * We need to execute some scripts directly from the rcm-guest host. To perform
- * those operations, we stream the script into stdin of an SSH bash invocation.
- * @param git_script_filename  The file in build-scripts/rcm-guest to execute
- * @param args A list of arguments to pass to script
- * @return Returns the stdout of the operation
- */
-def invoke_on_rcm_guest(git_script_filename, Object... args ) {
-    return sh(
-            returnStdout: true,
-            script: "ssh ocp-build@rcm-guest.app.eng.bos.redhat.com sh -s ${this.args_to_string(args)} < ${env.WORKSPACE}/build-scripts/rcm-guest/${git_script_filename}",
-    ).trim()
-}
-
 def param(type, name, value) {
     return [$class: type + 'ParameterValue', name: name, value: value]
-}
-
-/**
- * Trigger sweep job.
- *
- * @param String buildVersion: OCP build version (e.g. 4.2, 4.1, 3.11)
- * @param Boolean sweepBuilds: Enable/disable build sweeping
- * @param Boolean attachBugs: Enable/disable bug sweeping
- */
-def sweep(String buildVersion, Boolean sweepBuilds = false, Boolean attachBugs = false) {
-    def dry_run = true
-    if (params.DRY_RUN != null) {
-        dry_run = params.DRY_RUN
-    }
-    def sweepJob = build(
-        job: 'build%2Fsweep',
-        propagate: false,
-        parameters: [
-            string(name: 'BUILD_VERSION', value: buildVersion),
-            booleanParam(name: 'SWEEP_BUILDS', value: sweepBuilds),
-            booleanParam(name: 'ATTACH_BUGS', value: attachBugs),
-            booleanParam(name: 'DRY_RUN', value: dry_run),
-        ]
-    )
-    if (sweepJob.result != 'SUCCESS') {
-        currentBuild.result = 'UNSTABLE'
-        if (dry_run) {
-            return
-        }
-        commonlib.email(
-            replyTo: 'aos-team-art@redhat.com',
-            to: 'aos-art-automation+failed-sweep@redhat.com',
-            from: 'aos-art-automation@redhat.com',
-            subject: "Problem sweeping after ${currentBuild.displayName}",
-            body: "Jenkins console: ${commonlib.buildURL('console')}",
-        )
-    }
 }
 
 def sync_images(major, minor, mail_list, assembly, operator_nvrs = null, doozer_data_path, doozer_data_gitref = "") {
@@ -1226,55 +1179,6 @@ def extractBuildVersion(build) {
     return match ? match[0][1] : "" // first group in the regex
 }
 
-/**
- * Given build parameters, determine the version for this build.
- * @param stream: OCP minor version "X.Y"
- * @param stream: distgit branch "rhaos-X.Y-rhel-[78]"
- * @param versionParam: a version "X.Y.Z", empty to reuse latest version, "+" to increment latest .Z
- * @return the version determined "X.Y.Z"
- */
-def determineBuildVersion(stream, branch, versionParam) {
-    def version = "${stream}.0"  // default
-
-    def streamSegments = stream.tokenize(".").collect { it.toInteger() }
-    def major = streamSegments[0]
-    def minor = streamSegments[1]
-
-    // As of 4.4, let's try 4.x for everything (doozer will add patch version).
-    if (major >=4 && minor >= 4) {
-        echo "Forcing version ${stream} which is convention for this major.minor."
-        return stream
-    }
-
-    def prevBuild = latestOpenshiftRpmBuild(stream, branch)
-    if(versionParam == "+") {
-        // increment previous build version
-        version = extractBuildVersion(prevBuild)
-        if (!version) { error("Could not determine version from last build '${prevBuild}'") }
-
-        def segments = version.tokenize(".").collect { it.toInteger() }
-        segments[-1]++
-        version = segments.join(".")
-        echo("Using version ${version} incremented from latest openshift package ${prevBuild}")
-    } else if(versionParam) {
-        // explicit version given
-        version = commonlib.standardVersion(versionParam, false)
-        echo("Using parameter for build version: ${version}")
-    } else if (prevBuild) {
-        // use version from previous build
-        version = extractBuildVersion(prevBuild)
-        if (!version) { error("Could not determine version from last build '${prevBuild}'") }
-        echo("Using version ${version} from latest openshift package ${prevBuild}")
-    }
-
-    if (! version.startsWith("${stream}.")) {
-        // The version we came up with somehow doesn't match what we expect to build; abort
-        error("Determined a version, '${version}', that does not begin with '${stream}.'")
-    }
-
-    return version
-}
-
 @NonCPS
 String extractAdvisoryId(String elliottOut) {
     def matches = (elliottOut =~ /https:\/\/errata\.devel\.redhat\.com\/advisory\/([0-9]+)/)
@@ -1357,157 +1261,6 @@ def getChanges(yamlData) {
 }
 
 /**
- * Creates a plashet in the current Jenkins workspace and then sync's it to rcm-guest.
- * @param version  The ocp version (e.g. 4.5.25)
- * @param release  The 4.x release field (usually a timestamp)
- * @param el_major The RHEL major version (7 or 8)
- * @param include_embargoed If true, the plashet will include the very latest rpms (embargoed & unembargoed). Otherwise Plashet will only include unembargoed historical builds of rpms
- * @param auto_signing_advisory The signing advisory to use. Set to 0 to use the default advisory.
- * @return { 'localPlashetPath' : 'path/to/local/workspace/plashetDirName',
- *           'plashetDirName' : 'e.g. 4.5.0-<release timestamp>' or 4.5.0-<release timestamp>-embargoed'
- *
- * }
- */
-def buildBuildingPlashet(version, release, el_major, include_embargoed, auto_signing_advisory, for_ironic=false) {
-    def baseDir = "${env.WORKSPACE}/plashets/el${el_major}"
-    if (for_ironic) baseDir += "ironic"
-
-    def plashetDirName = "${version}-${release}" // e.g. 4.6.22-<release timestamp>
-    if (include_embargoed) {
-        plashetDirName += "-embargoed"
-    }
-    def (major, minor) = commonlib.extractMajorMinorVersionNumbers(version)
-    def major_minor = "${major}.${minor}"
-    def r = [:]
-    r['localPlashetPath'] = "${baseDir}/${plashetDirName}"  // where to find source for mirroring
-    r['plashetDirName'] = "${plashetDirName}"  // what to name the mirrored repo directory
-
-    /**
-     * plashet will build one or more yum repos for us -- one for each
-     * architecture enabled for the release. For each arch, a yum repo
-     * {baseDir}/{plashetName}/{arch}/os will be created.
-     * plashet will examine RPM packages currently tagged in the rhel-7 candidate
-     * and build the yum repos. plashet allows each arch to have different signing
-     * characteristics (i.e. x86_64 can be signed and s390x can be unsigned).
-     * However, during an image build OSBS will fail if it finds we have used
-     * unsigned RPMs for one CPU arch and signed images for arch. Thus,
-     * if one of our arches is in 'release' mode, we must build all
-     * arches with signed.
-     * commonlib.ocpReleaseState declares which arches are in release / pre-release mode.
-     * Read the comment on that map for more information
-     */
-    def archReleaseStates = commonlib.ocpReleaseState[major_minor]
-    def plashet_arch_args = ""
-
-    for (String release_arch : archReleaseStates['release']) {
-        plashet_arch_args += " --arch ${release_arch} signed"
-    }
-
-    // If any arch is GA, use signed for everything.
-    def pre_release_signing_mode = archReleaseStates['release']?'signed':'unsigned'
-
-    for (String pre_release_arch : archReleaseStates['pre-release']) {
-        plashet_arch_args += " --arch ${pre_release_arch} ${pre_release_signing_mode}"
-    }
-
-    def productVersion = el_major >= 8 ? "OSE-${major_minor}-RHEL-${el_major}" : "RHEL-${el_major}-OSE-${major_minor}"
-    def brewTag = "rhaos-${major_minor}-rhel-${el_major}-candidate"
-    def embargoedBrewTag = "--embargoed-brew-tag rhaos-${major_minor}-rhel-${el_major}-embargoed"
-    if (for_ironic) {
-        productVersion = "OSE-IRONIC-${major_minor}-RHEL-${el_major}"
-        brewTag = "rhaos-${major_minor}-ironic-rhel-${el_major}-candidate"
-        embargoedBrewTag  = ""  // unlikely to exist until we begin using -gating tag
-    }
-
-    // To prevent add/remove races within the advisory, a lock is used.
-    lock("signing-advisory-${auto_signing_advisory}") {
-        retry(2) {
-            commonlib.shell("rm -rf ${baseDir}/${plashetDirName}") // in case we are retrying..
-            def doozerOpts = "--working-dir=${env.WORKSPACE}/doozer_working --group=openshift-${major_minor}"
-            doozer([
-                    doozerOpts,
-                    "config:plashet",
-                    "--base-dir ${baseDir}",  // Directory in which to create the yum repo
-                    "--name ${plashetDirName}",  // The name of the directory to create within baseDir to contain the arch repos.
-                    "--repo-subdir os",  // This is just to be compatible with legacy doozer puddle layouts which had {arch}/os.
-                    plashet_arch_args,
-                    "from-tags", // plashet mode of operation => build from brew tags
-                    include_embargoed? "--include-embargoed" : "",
-                    "--inherit",
-                    "--brew-tag ${brewTag} ${productVersion}",  // --brew-tag <tag> <associated-advisory-product-version>
-                    "${embargoedBrewTag}",
-                    (major == 3) ? "--inherit" :  "", // For OCP3.11, we depend on tag inheritance to populate the OSE repo
-                    auto_signing_advisory?"--signing-advisory-id ${auto_signing_advisory}":"",    // The advisory to use for signing
-                    "--signing-advisory-mode clean",
-                    // The networking team requests plashets be built with latest and latest-1 package versions
-                    // --include-previous-for accepts package name prefixes, so "openvswitch" will match openvswitch2.15, openvswitch2.15-devel, ...
-                    "--include-previous-for openvswitch", // this is a package prefix
-                    "--include-previous-for python3-openvswitch", // this is a package prefix
-                    "--include-previous-for ovn", // this is a package prefix
-                    "--include-previous-for haproxy", // avoid chicken and egg issues with base image & haproxy bumps
-                    "--include-previous-for cri-o", // Fix regression in 4.10 CI
-                    "--poll-for 15",   // wait up to 15 minutes for auto-signing to work its magic.
-            ].join(' '))
-        }
-    }
-
-    /**
-     * The yum repos that plashet creates are very lightweight because
-     * it only symlinks out to the desired RPMs on buildvm's /mnt/redhat
-     * share. We now want to copy the new repo out to rcm-guest. The
-     * good news is that we can keep it lightweight! rcm-guest has the
-     * exact same share path. The symlinks plashet created can be copied
-     * as symlinks. Note that if you copy the puddle to a system without
-     * these links, you should use rsync --copy-links which will transfer
-     * the linked file's content to the destination filename.
-     *
-     * Now.. let's copy to rcm-guest! Why? Because when we build images in
-     * brew, OSBS will only let the Dockerfile's yum invocations
-     * access certain remote locations. One of those whitelisted locations
-     * is rcm-guest, so copy our lightweight repo there.
-     *
-     * ocp-build is a user established for us on the rcm-guest host by
-     * Red Hat PnT devops. See /home/jenkins/.ssh.config.
-     */
-
-    // During an image build, doozer will provide repo files pointing back to a directory named
-    // 'building' in this rcm-guest directory. Before creating 'building', let's get the
-    // repo over there.
-    def destBaseDir = "/mnt/rcm-guest/puddles/RHAOS/plashets/${major_minor}"
-    if (for_ironic) destBaseDir += "-el${el_major}-ironic"
-    else if (el_major >= 8) destBaseDir += "-el${el_major}"
-
-    def assembly = params.ASSEMBLY ?: "stream"
-    destBaseDir += "/${assembly}"
-    // Just in case this is the first time we have built this release, create the landing place on rcm-guest.
-    commonlib.shell("ssh ocp-build@rcm-guest -- mkdir -p ${destBaseDir}")
-    commonlib.shell([
-            "rsync",
-            "-av",  // archive mode, verbose
-            "--links",  // include links, but keep them as symlinks
-            "--progress",
-            "-h", // human readable numbers
-            "--no-g",  // use default group on rcm-guest for the user
-            "--omit-dir-times",
-            "--chmod=Dug=rwX,ugo+r",
-            "--perms",
-            "${r.localPlashetPath}",  // plashet we just created
-            "ocp-build@rcm-guest:${destBaseDir}"  // the plashetDirName will be created in this destBaseDir
-    ].join(" "))
-
-    // So we have a yum repo out on rcm-guest. Now we need to name it 'building' so the
-    // doozer repo files (which have static urls back to rcm-guest) will resolve.
-    def symlink = include_embargoed? "building-embargoed" : "building"
-    commonlib.shell("ssh -t ocp-build@rcm-guest \"cd ${destBaseDir}; ln -sfn ${plashetDirName} ${symlink}\" ")
-
-    // If and only if we are building for "stream" assembly, replace the legacy symlink (e.g. puddles/RHAOS/plashets/{MAJOR}.{MINOR}-el8/building-embargoed) to stream/building-embargoed
-    if (assembly == "stream") {
-        commonlib.shell("ssh -t ocp-build@rcm-guest \"cd ${destBaseDir}/..; ln -sfn stream/${symlink} ${symlink}\" ")
-    }
-    return r
-}
-
-/**
  * Get image/rpm owners from ocp-build-data
  * @param doozerOpts Doozer options
  * @param images list of images
@@ -1526,80 +1279,10 @@ def get_owners(doozerOpts, images, rpms=[]) {
     return yamlData
 }
 
-def build_plashets(doozerOpts, version, release, dryRun = false) {
-    def auto_signing_advisory = Integer.parseInt(doozer("${doozerOpts} -q config:read-group --default=0 signing_advisory", [capture: true]).trim())
-    def group_repos = readJSON text: doozer("${doozerOpts} -q config:read-group --default=None repos", [capture: true]).trim()
-    def plashets_built = [:]
-
-    def (major, minor) = commonlib.extractMajorMinorVersionNumbers(version)
-
-    // Create plashet repos on ocp-artifacts
-    if (major >= 4) {
-        def revision = release
-        if (revision.endsWith(".p?"))
-            revision = revision.substring(0, revision.length() - 3)  // remove .p? suffix
-        def working_dir = "${env.WORKSPACE}/plashet-working"
-        cleanWorkdir(working_dir)
-        sh "mkdir -p $working_dir"
-        def assembly = params.ASSEMBLY ?: "stream"
-        def cmd = [
-            "python3",
-            "./hacks/plashet/build-plashet.py",
-            "--working-dir=$working_dir",
-            "--group=openshift-$version",
-            "--assembly=$assembly",
-            "--revision=$revision",
-            "--signing-advisory=$auto_signing_advisory"
-        ]
-        if (commonlib.ocpReleaseState[version]["release"]) {
-            cmd << "--auto-sign"
-        }
-        for (String release_arch : commonlib.ocpReleaseState[version]['release']) {
-            cmd << "--arch=$release_arch"
-        }
-        for (String pre_release_arch : commonlib.ocpReleaseState[version]['pre-release']) {
-            cmd << "--arch=$pre_release_arch"
-        }
-        if (dryRun) {
-            cmd << "--dry-run"
-        }
-        commonlib.shell(cmd.join(' '))
-
-        // Populate plashets_built
-        plashets_built = readYaml(file: "$working_dir/plashets_built.yaml")
-        echo "plashets_built: $plashets_built"
-        if (major > 4 || major == 4 && minor >= 6) { // 4.6+ already fully migrated; no need to create repos on rcm-guest.
-            return plashets_built
-        }
-        // Continue to build and sync plashet repos out to rcm-guest until RHCOS starts consuming content from ocp-artifacts.
-        plashets_built = [:]
-    }
-
-    // produce plashet repos on rcm-guest
-    for (rhel_major in [7, 8, 9]) {  // TODO: should have a central list of these by version
-        for (ironic in [true, false]) {
-            for (priv in [true, false]) {
-                rhel_major_part = rhel_major == 7 ? "" : "-${rhel_major}"
-                // NOTE: this implies a rigid naming scheme for our plashets in group.yml
-                repo_name = "rhel${rhel_major_part}-server-${ironic ? 'ironic' : 'ose'}-rpms${priv ? '-embargoed' : ''}"
-                if (repo_name.toString() in group_repos) {
-                    if (dryRun) {
-                        echo "dry run: would have built plashet for ${repo_name}"
-                        continue
-                    }
-                    echo "building plashet for repo ${repo_name}"
-                    plashets_built[repo_name] = buildBuildingPlashet(version, release, rhel_major, priv, auto_signing_advisory, ironic)
-                }
-            }
-        }
-    }
-    return plashets_built
-}
-
 def get_releases_config(String group) {
     // FIXME: This method doesn't handle assembly inheritance.
     def r = httpRequest(
-        url: "https://raw.githubusercontent.com/openshift/ocp-build-data/${URLEncoder.encode(group, 'utf-8')}/releases.yml",
+        url: "https://raw.githubusercontent.com/openshift-eng/ocp-build-data/${URLEncoder.encode(group, 'utf-8')}/releases.yml",
         httpMode: 'GET',
         timeout: 30,
         validResponseCodes: '200:404',

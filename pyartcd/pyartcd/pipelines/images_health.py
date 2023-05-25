@@ -1,7 +1,4 @@
-import os
-
 import click
-
 from pyartcd import util, exectools
 from pyartcd.cli import cli, click_coroutine, pass_runtime
 from pyartcd.runtime import Runtime
@@ -11,7 +8,7 @@ class ImagesHealthPipeline:
     def __init__(self, runtime: Runtime, version: str,
                  send_to_release_channel: bool, send_to_aos_art: bool):
         self.runtime = runtime
-        self.doozer_working = f'{self.runtime.working_dir.absolute()}/doozer_working'
+        self.doozer_working = self.runtime.working_dir / "doozer_working"
         self.logger = self.runtime.logger
         self.version = version
         self.send_to_release_channel = send_to_release_channel
@@ -51,12 +48,12 @@ class ImagesHealthPipeline:
 
             if self.send_to_aos_art:
                 self.slack_client.bind_channel('#aos-art')
-                self.slack_client.say(msg)
+                await self.slack_client.say(msg)
 
         else:
             if self.send_to_release_channel:
                 self.slack_client.bind_channel(self.version)
-                await self.slack_client.say(f':white_check_mark: All images are healthy for opensshift-{self.version}')
+                await self.slack_client.say(f':white_check_mark: All images are healthy for openshift-{self.version}')
 
 
 @cli.command('images-health')

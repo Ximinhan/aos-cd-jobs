@@ -1,9 +1,11 @@
-PLASHET_REMOTE_URL = "http://download.eng.bos.redhat.com/rcm-guest/puddles/RHAOS/plashets"
-PLASHET_REMOTE_HOST = "ocp-build@rcm-guest.app.eng.bos.redhat.com"
-PLASHET_REMOTE_BASE_DIR = "/mnt/rcm-guest/puddles/RHAOS/plashets"
+PLASHET_REMOTE_URL = "https://ocp-artifacts.hosts.prod.psi.rdu2.redhat.com/pub/RHOCP/plashets"
+PLASHET_REMOTE_HOST = "ocp-artifacts"
+PLASHET_REMOTE_BASE_DIR = "/mnt/data/pub/RHOCP/plashets"
 
-TARBALL_SOURCES_REMOTE_HOST = "ocp-build@rcm-guest.app.eng.bos.redhat.com"
-TARBALL_SOURCES_REMOTE_BASE_DIR = "/mnt/rcm-guest/ocp-client-handoff"
+SPMM_UTILS_REMOTE_HOST = "exd-ocp-buildvm-bot-prod@spmm-util"
+
+OPERATOR_URL = 'registry-proxy.engineering.redhat.com/rh-osbs/openshift-ose-operator-sdk'
+BREW_SERVER = 'https://brewhub.engineering.redhat.com/brewhub'
 
 RELEASE_IMAGE_REPO = "quay.io/openshift-release-dev/ocp-release"
 
@@ -16,4 +18,12 @@ NIGHTLY_PAYLOAD_REPOS = {
     "aarch64": "registry.ci.openshift.org/ocp-arm64/release-arm64",
 }
 
-OCP_BUILD_DATA_URL = 'https://github.com/openshift/ocp-build-data'
+OCP_BUILD_DATA_URL = 'https://github.com/openshift-eng/ocp-build-data'
+
+# This is the URL that buildvm itself uses to resolve Jenkins
+# It shall be used by jenkinsapi to start new builds
+JENKINS_SERVER_URL = 'https://buildvm.hosts.prod.psi.bos.redhat.com:8443'
+
+# This is the URL that humans behind a VPN use to browse Jenkins UI
+# It shall be used to print clickable logs that redirect the user to the triggered job page
+JENKINS_UI_URL = 'https://saml.buildvm.hosts.prod.psi.bos.redhat.com:8888'

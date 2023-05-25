@@ -501,26 +501,82 @@ def stagePublishClient(quay_url, from_release_tag, release_name, arch, client_ty
     def CLIENT_MIRROR_DIR="${BASE_TO_MIRROR_DIR}/${arch}/clients/${client_type}/${release_name}"
     sh "mkdir -p ${CLIENT_MIRROR_DIR}"
 
-    if ( arch == 'x86_64' ) {
-        // oc image  extract requires an empty destination directory. So do this before extracting tools.
-        // oc adm release extract --tools does not require an empty directory.
-        def oc_mirror_extract_cmd = """
-            # If the release payload contains an oc-mirror artifact image, then extract the oc-mirror binary.
-            if oc adm release info ${quay_url}:${from_release_tag} --image-for=oc-mirror ; then
-                MOBY_DISABLE_PIGZ=true GOTRACEBACK=all oc image extract `oc adm release info ${quay_url}:${from_release_tag} --image-for=oc-mirror` --path /usr/bin/oc-mirror:${CLIENT_MIRROR_DIR}
-                pushd ${CLIENT_MIRROR_DIR}
-                tar zcvf oc-mirror.tar.gz oc-mirror
-                rm oc-mirror
-                popd
-            fi
-        """
-        commonlib.shell(script: oc_mirror_extract_cmd)
-    }
-
     def tools_extract_cmd = "MOBY_DISABLE_PIGZ=true GOTRACEBACK=all oc adm release extract --tools --command-os='*' -n ocp " +
                                 " --to=${CLIENT_MIRROR_DIR} --from ${quay_url}:${from_release_tag}"
-
     commonlib.shell(script: tools_extract_cmd)
+
+    if ( arch == 'x86_64' ) {
+        // oc_mirror_extract_cmd needs to extract to a emtpy folder, since tools_extract_cmd is already extracting to
+        // CLIENT_MIRROR_DIR, creating a temporary folder
+        def TEMP_OC_MIRROR_DIR = "${CLIENT_MIRROR_DIR}/temp-oc-mirror-dir"
+        sh "mkdir ${TEMP_OC_MIRROR_DIR}"
+
+        // oc image  extract requires an empty destination directory. So do this before extracting tools.
+        // oc adm release extract --tools does not require an empty directory, but will overwrite the files.
+        def oc_mirror_extract_cmd = '''
+            # If the release payload contains an oc-mirror artifact image, then extract the oc-mirror binary.
+            if oc adm release info ${QUAY_URL}:${FROM_RELEASE_TAG} --image-for=oc-mirror ; then
+                MOBY_DISABLE_PIGZ=true GOTRACEBACK=all oc image extract `oc adm release info ${QUAY_URL}:${FROM_RELEASE_TAG} --image-for=oc-mirror` --path /usr/bin/oc-mirror:${TEMP_OC_MIRROR_DIR}
+                pushd ${TEMP_OC_MIRROR_DIR}
+                tar zcvf oc-mirror.tar.gz oc-mirror
+                popd
+                pushd ${CLIENT_MIRROR_DIR}
+                cp ${TEMP_OC_MIRROR_DIR}/oc-mirror.tar.gz oc-mirror.tar.gz
+                sha256sum oc-mirror.tar.gz >> sha256sum.txt
+                popd
+                rm -rf ${TEMP_OC_MIRROR_DIR}
+            fi
+        '''
+        withEnv(["CLIENT_MIRROR_DIR=${CLIENT_MIRROR_DIR}", "QUAY_URL=${quay_url}", "FROM_RELEASE_TAG=${from_release_tag}", "TEMP_OC_MIRROR_DIR=${TEMP_OC_MIRROR_DIR}"]) {
+            commonlib.shell(script: oc_mirror_extract_cmd)
+        }
+    }
+
+
+    // Find the GitHub commit id for cli, installer and opm and download the repo at that commit, then publish it.
+    def download_tarballs = '''
+        for image_name in cli installer operator-registry; do
+          # Get the image digest
+          image_digest=$(oc adm release info ${QUAY_URL}:${FROM_RELEASE_TAG} --image-for=${image_name})
+
+          # If it exists
+          if [[ ${image_digest} ]] ; then
+            # Store the image info in a temporary file
+            oc image info --output json "$image_digest" > temp_image_info.json
+
+            # Get the commit SHA, GitHub url of the source and extract the name
+            commit=$( cat temp_image_info.json | jq -r '.config.config.Labels."io.openshift.build.commit.id"')
+            source_url=$( cat temp_image_info.json | jq -r '.config.config.Labels."io.openshift.build.source-location"')
+            source_name=$( echo "$source_url" | cut -d '/' -f 5)
+
+            case $source_name in
+              oc)
+                source_name="openshift-client"
+                ;;
+              installer)
+                source_name="openshift-install"
+                ;;
+              operator-framework-olm)
+                source_name="opm"
+                ;;
+            esac
+
+            # Delete temporary file
+            rm temp_image_info.json
+
+            # Download the tar file to the correct path
+            pushd ${CLIENT_MIRROR_DIR}
+                curl -L -o "${source_name}-src-${FROM_RELEASE_TAG}.tar.gz" "${source_url}/archive/${commit}.tar.gz"
+                sha256sum "${source_name}-src-${FROM_RELEASE_TAG}.tar.gz" >> sha256sum.txt
+            popd
+          fi
+        done
+    '''
+    // Injecting variables directly as env so as to not confuse groovy and bash string interpolation
+    withEnv(["CLIENT_MIRROR_DIR=${CLIENT_MIRROR_DIR}", "QUAY_URL=${quay_url}", "FROM_RELEASE_TAG=${from_release_tag}"]) {
+            commonlib.shell(script: download_tarballs)
+    }
+
     commonlib.shell("cd ${CLIENT_MIRROR_DIR}\n" + '''
 # External consumers want a link they can rely on.. e.g. .../latest/openshift-client-linux.tgz .
 # So whatever we extract, remove the version specific info and make a symlink with that name.
