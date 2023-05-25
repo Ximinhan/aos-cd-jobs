@@ -144,8 +144,12 @@ get_plugin() {
     if [ -f "${hpi_file}" ]; then
         existing_version="$(cat ${version_file})"
 
-        if [ "${existing_version}" >= "${PLUGIN_VERSION}" ]; then
+        if [ "${existing_version}" == "${PLUGIN_VERSION}" ]; then
             echo "Skipping already existing plugin: ${plugin}:${existing_version}"
+            return 0
+        fi
+        if [ $(echo "${existing_version}" | cut -d "." -f 1) > $(echo "${PLUGIN_VERSION}" | cut -d "." -f 1) ]; then
+            echo "Skipping due to existing plugin: ${plugin}:${existing_version} higher than ${PLUGIN_VERSION}"
             return 0
         fi
 
