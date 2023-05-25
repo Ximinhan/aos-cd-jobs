@@ -144,7 +144,7 @@ get_plugin() {
     if [ -f "${hpi_file}" ]; then
         existing_version="$(cat ${version_file})"
 
-        if [ "${existing_version}" == "${PLUGIN_VERSION}" ]; then
+        if [ "${existing_version}" >= "${PLUGIN_VERSION}" ]; then
             echo "Skipping already existing plugin: ${plugin}:${existing_version}"
             return 0
         fi
