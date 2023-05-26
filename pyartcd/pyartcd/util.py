@@ -3,6 +3,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Tuple
+from rich.tree import Tree
+from rich.console import Console
 import logging
 
 import aiofiles
@@ -286,9 +288,18 @@ def get_release_controller_url(release_stream_name):
 
 def log_dir_tree(path_to_dir):
     logger.info(f"Printing dir tree of {path_to_dir}")
-    for child in os.listdir(path_to_dir):
-        child_path = os.path.join(path_to_dir, child)
-        logger.info(child_path)
+    console = Console()
+
+    def get_tree(parent, path_to_dir):
+        for child in os.listdir(path_to_dir):
+            if os.path.isdir(os.path.join(path_to_dir, child)):
+                tree = Tree(child)
+                parent.add(get_tree(tree, os.path.join(path_to_dir, child)))
+            else:
+                parent.add(child)
+        return parent
+    tree = get_tree(Tree(path_to_dir),path_to_dir)
+    logger.info(console.log(tree))
 
 
 def log_file_content(path_to_file):
