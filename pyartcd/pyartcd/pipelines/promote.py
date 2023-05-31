@@ -467,7 +467,7 @@ class PromotePipeline:
 
         # create symlink for clients
         self.create_symlink(client_mirror_dir, False, False)
-        await self.generate_changelog(release_name, client_mirror_dir, minor)
+        await self.generate_changelog(release_name, client_mirror_dir, minor, build_arch)
 
         # extract opm binaries
         _, operator_registry = get_release_image_pullspec(f"{quay_url}:{from_release_tag}", "operator-registry")
@@ -479,13 +479,13 @@ class PromotePipeline:
         # Publish the clients to our S3 bucket.
         await exectools.cmd_assert_async(f"aws s3 sync --no-progress --exact-timestamps {client_mirror_dir}/{build_arch} s3://art-srv-enterprise/pub/openshift-v4/{build_arch}", stdout=sys.stderr)
 
-    async def generate_changelog(self, release_name, client_mirror_dir, minor):
+    async def generate_changelog(self, release_name, client_mirror_dir, minor, build_arch):
         try:
             # To encourage customers to explore dev-previews & pre-GA releases, populate changelog
             # https://issues.redhat.com/browse/ART-3040
             prevMinor = minor - 1
-            rcURL = util.get_release_controller_url(release_name)
-            rcArch = util.get_release_controller_arch(release_name)
+            rcArch = go_arch_for_brew_arch(build_arch)
+            rcURL = f"https://{rcArch}.ocp.releases.ci.openshift.org"
             stableStream = "4-stable" if rcArch == "amd64" else f"4-stable-{rcArch}"
             outputDest = f"{client_mirror_dir}/changelog.html"
             outputDestMd = f"{client_mirror_dir}/changelog.md"
@@ -538,8 +538,7 @@ class PromotePipeline:
             with tarfile.open(f"{client_mirror_dir}/opm-{platform}-{release_name}.tar.gz", "w:gz") as tar:  # archive file
                 tar.add(f"{client_mirror_dir}/{binary}", arcname=binary)
             os.remove(f"{client_mirror_dir}/{binary}")  # remove opm binary
-            os.symlink(f"opm-{platform}-{release_name}.tar.gz", f"opm-{platform}.tar.gz")  # create symlink
-            shutil.move(f"opm-{platform}.tar.gz", f"{client_mirror_dir}/opm-{platform}.tar.gz")
+            os.symlink(f"opm-{platform}-{release_name}.tar.gz", f"{client_mirror_dir}/opm-{platform}.tar.gz") # create symlink
             with open(f"{client_mirror_dir}/opm-{platform}-{release_name}.tar.gz", 'rb') as f:  # calc shasum
                 shasum = hashlib.sha256(f.read()).hexdigest()
             with open(f"{client_mirror_dir}/sha256sum.txt", 'a') as f:  # write shasum to sha256sum.txt
@@ -550,7 +549,6 @@ class PromotePipeline:
         base_to_mirror_dir = f"{working_dir}/to_mirror/openshift-v4"
         shutil.rmtree(f"{base_to_mirror_dir}/multi", ignore_errors=True)
         release_mirror_dir = f"{base_to_mirror_dir}/multi/clients/{client_type}/{release_name}"
-        current_path = os.getcwd()
 
         for go_arch in [go_arch_for_brew_arch(arch) for arch in arch_list]:
             if go_arch == "multi":
@@ -584,7 +582,6 @@ class PromotePipeline:
     def create_symlink(self, path_to_dir, log_tree, log_shasum):
         # External consumers want a link they can rely on.. e.g. .../latest/openshift-client-linux.tgz .
         # So whatever we extract, remove the version specific info and make a symlink with that name.
-        current_path = os.getcwd() # /mnt/workspace/jenkins/working/build_promote-assembly
         # path_to_dir is relative path artcd_working/to_mirror/openshift-v4/aarch64/clients/ocp/4.13.0-rc.6
         for f in os.listdir(path_to_dir):
             if f.endswith(('.tar.gz', '.bz', '.zip', '.tgz')):
@@ -604,13 +601,12 @@ class PromotePipeline:
                 if match:
                     new_name = match.group(1) + match.group(2) + '.' + match.group(4)
                     # Create a symlink like openshift-client-linux.tgz => openshift-client-linux-4.3.0-0.nightly-2019-12-06-161135.tar.gz
-                    os.symlink(f, new_name)
-                    shutil.move(new_name, f"{path_to_dir}/{new_name}")
+                    os.symlink(f, f"{path_to_dir}/{new_name}")
 
         if log_tree:
-            util.log_dir_tree(f"{current_path}/{path_to_dir}")  # print dir tree
+            util.log_dir_tree(path_to_dir) # print dir tree
         if log_shasum:
-            util.log_file_content(f"{current_path}/{path_to_dir}/sha256sum.txt")  # print sha256sum.txt
+            util.log_file_content(f"{path_to_dir}/sha256sum.txt")  # print sha256sum.txt
 
     async def change_advisory_state(self, advisory: int, state: str):
         cmd = [
