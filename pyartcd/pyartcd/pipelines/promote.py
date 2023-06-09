@@ -535,7 +535,7 @@ class PromotePipeline:
         # Compress binaries into tar.gz files and calculate sha256 digests
         for idx, binary in enumerate(binaries):
             platform = platforms[idx]
-            os.chmod(binary, 0o755)
+            os.chmod(f"{client_mirror_dir}/{binary}", 0o755)
             with tarfile.open(f"{client_mirror_dir}/opm-{platform}-{release_name}.tar.gz", "w:gz") as tar:  # archive file
                 tar.add(f"{client_mirror_dir}/{binary}", arcname=binary)
             os.remove(f"{client_mirror_dir}/{binary}")  # remove opm binary
