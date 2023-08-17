@@ -1,0 +1,81 @@
+name: Submodule Sync
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch: ~
+
+jobs:
+  submodule-sync:
+    name: Submodule Sync
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout the latest code
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+    - name: submodule art-tools sync
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          branch_name: automated-submodule-update
+          module_name: art-tools
+      run: |
+          USER_LOGIN=$(jq -r ".comment.user.login" "$GITHUB_EVENT_PATH")
+          API_HEADER="Accept: application/vnd.github.v3+json"
+          AUTH_HEADER="Authorization: token $GITHUB_TOKEN"
+          URI="https://api.github.com"
+          user_response=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
+          "${URI}/users/${USER_LOGIN}")
+          USER_NAME=$(echo "$user_response" | jq -r ".name")
+          USER_EMAIL=$(echo "$user_response" | jq -r ".email")
+          if [[ "$USER_EMAIL" == "null" ]]; then
+          	USER_EMAIL="$USER_LOGIN@users.noreply.github.com"
+          fi
+          
+          # Fetch the latest sha for the art-tools branch from that repo
+          mod=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
+          "${URI}/repos/${USER_LOGIN}/$GITHUB_REPOSITORY/contents/art-tools")
+          sub_repo=$(echo "$mod" | jq -r .submodule_git_url)
+          sub_sha=$(echo "$mod" | jq -r .sha)
+
+          mod_remote=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
+          "${URI}/repos/openshift-eng/art-tools/git/ref/heads/main")
+          sha_remote=$(echo "$mod_remote" | jq -r .object.sha)
+          # Is the new ref the same as the current one?
+          if [[ "$sha_remote" == "sub_sha" ]]; then
+              echo "This submodule is already up to date"
+              exit 0
+          fi
+          
+          # Is it the same as the ref on the PR branch?
+          mod_pr=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
+          "${URI}/repos/${USER_LOGIN}/$GITHUB_REPOSITORY/contents/art-tools?ref=$branch_name")
+          sha_branch=$(echo "$mod_pr" | jq -r .sha)
+          if [[ "$sha_branch" != "null" ]]; then
+              if [[ "$sha_remote" == "sha_branch" ]]; then
+                  echo "This submodule is already updated on the PR branch"
+                  exit 0
+              fi
+          else
+              # Create a PR with this commit hash if it doesn't exist
+              USER_TOKEN=${USER_LOGIN}_TOKEN
+              COMMITTER_TOKEN=${!USER_TOKEN:-$GITHUB_TOKEN}
+              git config --global --add safe.directory /github/workspace
+              
+              git remote set-url origin https://x-access-token:$COMMITTER_TOKEN@github.com/$GITHUB_REPOSITORY.git
+              git config --global user.email "$USER_EMAIL"
+              git config --global user.name "$USER_NAME"
+              git submodule update --remote
+              git checkout -b $branch_name
+              git commit -am "Update [${module_name}] submodule to [openshift-eng/art-tools@main]"
+              git push --set-upstream origin $branch_name
+              pr=$(curl -s -X POST -H "${AUTH_HEADER}" -H "${API_HEADER}" \
+                  "${URI}/repos/${USER_LOGIN}/$GITHUB_REPOSITORY/pulls \
+                  -d '{"title":"Automated submodule update ($module_name)","body":"Update [$module_name] submodule to [openshift-eng/art-tools@main]","head":"${USER_LOGIN}:$branch_name","base":"master"}'
+          fi
+          
+          
+
+
+
+          
