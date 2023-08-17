@@ -31,7 +31,7 @@ jobs:
           
           # Fetch the latest sha for the art-tools branch from that repo
           mod=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-          "${URI}/repos/${USER_LOGIN}/${GITHUB_REPOSITORY}/contents/$module_name")
+          "${URI}/repos/${USER_LOGIN}/${GITHUB_REPOSITORY}/contents/${module_name}")
           sub_repo=$(echo "$mod" | jq -r .submodule_git_url)
           sub_sha=$(echo "$mod" | jq -r .sha)
           echo "$mod"
@@ -50,7 +50,7 @@ jobs:
           mod_pr=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
           "${URI}/repos/${USER_LOGIN}/${GITHUB_REPOSITORY}/contents/${module_name}?ref=${branch_name}")
           sha_branch=$(echo "$mod_pr" | jq -r .sha)
-          echo $mod_pr
+          echo $sha_branch
           if [[ "$sha_branch" != "null" ]]; then
               if [[ "$sha_remote" == "sha_branch" ]]; then
                   echo "This submodule is already updated on the PR branch"
