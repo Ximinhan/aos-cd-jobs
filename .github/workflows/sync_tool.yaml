@@ -21,27 +21,23 @@ jobs:
           module_name: art-tools
           module_branch: main
       run: |
-          USER_LOGIN=$(jq -r ".comment.user.login" "$GITHUB_EVENT_PATH")
           API_HEADER="Accept: application/vnd.github.v3+json"
           AUTH_HEADER="Authorization: token $GITHUB_TOKEN"
           URI="https://api.github.com"
-          user_response=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-          "${URI}/users/${USER_LOGIN}")
-          USER_NAME=$(echo "$user_response" | jq -r ".name")
+          user_response=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" "${URI}/users/${GITHUB_REPOSITORY_OWNER}")
+          USER_LOGIN=$(echo "$user_response" | jq -r ".login")
           USER_EMAIL=$(echo "$user_response" | jq -r ".email")
-          if [[ "$USER_EMAIL" == "null" ]]; then
-          	USER_EMAIL="$USER_LOGIN@users.noreply.github.com"
-          fi
-          echo "user_name: $USER_NAME, user_login: $USER_LOGIN, user_email:$USER_EMAIL"
+          echo "user_login: $USER_LOGIN, user_email:$USER_EMAIL"
           
           # Fetch the latest sha for the art-tools branch from that repo
           mod=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-          "${URI}/repos/${USER_LOGIN}/$GITHUB_REPOSITORY/contents/$module_name")
+          "${URI}/repos/${USER_LOGIN}/${GITHUB_REPOSITORY}/contents/$module_name")
           sub_repo=$(echo "$mod" | jq -r .submodule_git_url)
           sub_sha=$(echo "$mod" | jq -r .sha)
+          echo "current sha: $sub_sha"
 
           mod_remote=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-          "${URI}/repos/openshift-eng/$module_name/git/ref/heads/$module_branch")
+          "${URI}/repos/openshift-eng/${module_name}/git/ref/heads/${module_branch}")
           sha_remote=$(echo "$mod_remote" | jq -r .object.sha)
           # Is the new ref the same as the current one?
           if [[ "$sha_remote" == "sub_sha" ]]; then
@@ -51,7 +47,7 @@ jobs:
           echo "current repo's submodule is outdated"
           # Is it the same as the ref on the PR branch?
           mod_pr=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-          "${URI}/repos/${USER_LOGIN}/$GITHUB_REPOSITORY/contents/$module_name?ref=$branch_name")
+          "${URI}/repos/${USER_LOGIN}/${GITHUB_REPOSITORY}/contents/${module_name}?ref=${branch_name}")
           sha_branch=$(echo "$mod_pr" | jq -r .sha)
           if [[ "$sha_branch" != "null" ]]; then
               if [[ "$sha_remote" == "sha_branch" ]]; then
