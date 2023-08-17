@@ -55,17 +55,20 @@ jobs:
               if [[ "$sha_remote" == "$sha_branch" ]]; then
                   echo "This submodule is already updated on the PR branch"
                   exit 0
+              else
+                  echo "This submodule is outdate on the pr branch"
+                  git push origin --delete $branch_name
               fi
           fi
           
           # Create a PR with this commit hash if it doesn't exist
+          echo "Create new pr to update submodule"
           git config --global --add safe.directory /github/workspace
           
           git remote set-url origin https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY.git
           git config --global user.email "$USER_EMAIL"
           git config --global user.name "$USER_LOGIN"
 
-          git push origin --delete $branch_name
           git checkout -b $branch_name
           git submodule update --init --recursive --remote -- art-tools
           git commit -am "Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]"
