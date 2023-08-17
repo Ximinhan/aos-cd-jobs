@@ -52,24 +52,26 @@ jobs:
           sha_branch=$(echo "$mod_pr" | jq -r .sha)
           echo $sha_branch
           if [[ "$sha_branch" != "null" ]]; then
-              if [[ "$sha_remote" == "sha_branch" ]]; then
+              if [[ "$sha_remote" == "$sha_branch" ]]; then
                   echo "This submodule is already updated on the PR branch"
                   exit 0
               fi
-          else
-              # Create a PR with this commit hash if it doesn't exist
-              git config --global --add safe.directory /github/workspace
-              
-              git remote set-url origin https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY.git
-              git config --global user.email "$USER_EMAIL"
-              git config --global user.name "$USER_LOGIN"
-              
-              git checkout -b $branch_name
-              git submodule update --init --recursive --remote -- art-tools
-              git commit -am "Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]"
-              git push --set-upstream origin $branch_name
-              gh pr create --title "Automated submodule update (${module_name})" --body "Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]"
           fi
+          
+          # Create a PR with this commit hash if it doesn't exist
+          git config --global --add safe.directory /github/workspace
+          
+          git remote set-url origin https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY.git
+          git config --global user.email "$USER_EMAIL"
+          git config --global user.name "$USER_LOGIN"
+
+          git push origin --delete $branch_name
+          git checkout -b $branch_name
+          git submodule update --init --recursive --remote -- art-tools
+          git commit -am "Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]"
+          git push --set-upstream origin $branch_name
+          gh pr create --title "Automated submodule update (${module_name})" --body "Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]"
+      
           
           
 
