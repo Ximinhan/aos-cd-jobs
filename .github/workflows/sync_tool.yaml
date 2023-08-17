@@ -70,7 +70,7 @@ jobs:
               git push --set-upstream origin $branch_name
               curl -s -X POST -H "${AUTH_HEADER}" -H "${API_HEADER}" \
                   "${URI}/repos/$GITHUB_REPOSITORY/pulls" \
-                  -d '{"title":"Automated submodule update (${module_name})","body":"Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]","head":"${branch_name}","base":"master"}'
+                  -d '{"title":"Automated submodule update (${module_name})","body":"Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]","head":"$USER_LOGIN:$branch_name","base":"master"}'
           fi
           
           
