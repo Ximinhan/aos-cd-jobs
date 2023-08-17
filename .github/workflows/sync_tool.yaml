@@ -34,7 +34,7 @@ jobs:
           sha_remote=$(echo "$mod_remote" | jq -r .object.sha)
           
           # Is the new ref the same as the current one?
-          if [[ "$sha_remote" == '$(echo "$mod" | jq -r .sha)' ]]; then
+          if [[ "$sha_remote" == $(echo "$mod" | jq -r .sha) ]]; then
               echo "This submodule is already up to date"
               exit 0
           fi
@@ -58,8 +58,8 @@ jobs:
           git config --global --add safe.directory /github/workspace
           
           git remote set-url origin https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY.git
-          git config --global user.email '$(echo "$user_response" | jq -r ".email")'
-          git config --global user.name '$(echo "$user_response" | jq -r ".login")'
+          git config --global user.email $(echo "$user_response" | jq -r ".email")
+          git config --global user.name $(echo "$user_response" | jq -r ".login")
 
           git checkout -b $BRANCH
           git submodule update --init --recursive --remote -- $MOD_NAME
