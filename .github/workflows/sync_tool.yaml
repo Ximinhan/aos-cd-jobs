@@ -70,7 +70,7 @@ jobs:
               git commit -am "Update [${module_name}] submodule to [openshift-eng/art-tools@main]"
               git push --set-upstream origin $branch_name
               pr=$(curl -s -X POST -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-                  "${URI}/repos/${USER_LOGIN}/$GITHUB_REPOSITORY/pulls \
+                  "${URI}/repos/${USER_LOGIN}/$GITHUB_REPOSITORY/pulls" \
                   -d '{"title":"Automated submodule update ($module_name)","body":"Update [$module_name] submodule to [openshift-eng/art-tools@main]","head":"${USER_LOGIN}:$branch_name","base":"master"}'
           fi
           
