@@ -21,6 +21,7 @@ jobs:
           module_name: art-tools
           module_branch: main
       run: |
+          ENV
           API_HEADER="Accept: application/vnd.github.v3+json"
           AUTH_HEADER="Authorization: token $GITHUB_TOKEN"
           URI="https://api.github.com"
@@ -31,7 +32,7 @@ jobs:
           
           # Fetch the latest sha for the art-tools branch from that repo
           mod=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-          "${URI}/repos/${USER_LOGIN}/${GITHUB_REPOSITORY}/contents/${module_name}")
+          "${URI}/repos/${GITHUB_REPOSITORY}/contents/${module_name}")
           sub_repo=$(echo "$mod" | jq -r .submodule_git_url)
           sub_sha=$(echo "$mod" | jq -r .sha)
           echo "$mod"
@@ -48,7 +49,7 @@ jobs:
           echo "current repo's submodule is outdated"
           # Is it the same as the ref on the PR branch?
           mod_pr=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-          "${URI}/repos/${USER_LOGIN}/${GITHUB_REPOSITORY}/contents/${module_name}?ref=${branch_name}")
+          "${URI}/repos/${GITHUB_REPOSITORY}/contents/${module_name}?ref=${branch_name}")
           sha_branch=$(echo "$mod_pr" | jq -r .sha)
           echo $sha_branch
           if [[ "$sha_branch" != "null" ]]; then
@@ -69,7 +70,7 @@ jobs:
               git commit -am "Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]"
               git push --set-upstream origin $branch_name
               curl -s -X POST -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-                  "${URI}/repos/${USER_LOGIN}/$GITHUB_REPOSITORY/pulls" \
+                  "${URI}/repos/$GITHUB_REPOSITORY/pulls" \
                   -d '{"title":"Automated submodule update (${module_name})","body":"Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]","head":"${branch_name}","base":"master"}'
           fi
           
