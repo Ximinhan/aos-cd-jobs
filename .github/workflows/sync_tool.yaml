@@ -67,7 +67,7 @@ jobs:
               git config --global user.name "$USER_NAME"
               
               git checkout -b $branch_name
-              git submodule update --remote -- art-tools
+              git submodule update --init --recursive --remote -- art-tools
               git commit -am "Update [${module_name}] submodule to [openshift-eng/art-tools@main]"
               git push --set-upstream origin $branch_name
               pr=$(curl -s -X POST -H "${AUTH_HEADER}" -H "${API_HEADER}" \
