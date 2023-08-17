@@ -65,8 +65,9 @@ jobs:
               git remote set-url origin https://x-access-token:$COMMITTER_TOKEN@github.com/$GITHUB_REPOSITORY.git
               git config --global user.email "$USER_EMAIL"
               git config --global user.name "$USER_NAME"
-              git submodule update --remote
+              
               git checkout -b $branch_name
+              git submodule update --remote
               git commit -am "Update [${module_name}] submodule to [openshift-eng/art-tools@main]"
               git push --set-upstream origin $branch_name
               pr=$(curl -s -X POST -H "${AUTH_HEADER}" -H "${API_HEADER}" \
