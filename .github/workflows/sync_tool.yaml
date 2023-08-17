@@ -68,9 +68,7 @@ jobs:
               git submodule update --init --recursive --remote -- art-tools
               git commit -am "Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]"
               git push --set-upstream origin $branch_name
-              curl -X POST -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-                  "${URI}/repos/${GITHUB_REPOSITORY}/pulls" \
-                  -d '{"title":"Automated submodule update (${module_name})","body":"Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]","head":"${GITHUB_REF}","base":"master"}'
+              gh pr create --title "Automated submodule update (${module_name})" --body "Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]"
           fi
           
           
