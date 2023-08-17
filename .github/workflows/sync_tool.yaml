@@ -1,4 +1,4 @@
-name: Submodule Sync
+name: Submodule Update
 on:
   schedule:
     - cron: "0 4 * * *"
@@ -17,47 +17,39 @@ jobs:
     - name: submodule art-tools sync
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          branch_name: automated-submodule-update
-          module_name: art-tools
-          module_branch: main
+          BRANCH: automated-submodule-update
+          MOD_NAME: art-tools
+          MOD_ORG: openshift-eng
+          MOD_BRANCH: main
       run: |
           API_HEADER="Accept: application/vnd.github.v3+json"
           AUTH_HEADER="Authorization: token $GITHUB_TOKEN"
           URI="https://api.github.com"
-          user_response=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" "${URI}/users/${GITHUB_REPOSITORY_OWNER}")
-          USER_LOGIN=$(echo "$user_response" | jq -r ".login")
-          USER_EMAIL=$(echo "$user_response" | jq -r ".email")
-          echo "user_login: $USER_LOGIN, user_email:$USER_EMAIL"
+          user_response=$(curl -s -H "${AUTH_HEADER}" -H "$API_HEADER" "$URI/users/$GITHUB_REPOSITORY_OWNER")
           
           # Fetch the latest sha for the art-tools branch from that repo
-          mod=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-          "${URI}/repos/${GITHUB_REPOSITORY}/contents/${module_name}")
-          sub_repo=$(echo "$mod" | jq -r .submodule_git_url)
-          sub_sha=$(echo "$mod" | jq -r .sha)
-          echo "$mod"
+          mod=$(curl -s -H "$AUTH_HEADER" -H "${API_HEADER}" "$URI/repos/$GITHUB_REPOSITORY/contents/$MOD_NAME")
 
-          mod_remote=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-          "${URI}/repos/openshift-eng/${module_name}/git/ref/heads/${module_branch}")
-          echo "$mod_remote"
+          mod_remote=$(curl -s -H "$AUTH_HEADER" -H "$API_HEADER" "$URI/repos/$MOD_ORG/$MOD_NAME/git/ref/heads/$MOD_BRANCH")
           sha_remote=$(echo "$mod_remote" | jq -r .object.sha)
+          
           # Is the new ref the same as the current one?
-          if [[ "$sha_remote" == "sub_sha" ]]; then
+          if [[ "$sha_remote" == '$(echo "$mod" | jq -r .sha)' ]]; then
               echo "This submodule is already up to date"
               exit 0
           fi
-          echo "current repo's submodule is outdated"
+          echo "master repo's submodule is outdated"
+          
           # Is it the same as the ref on the PR branch?
-          mod_pr=$(curl -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
-          "${URI}/repos/${GITHUB_REPOSITORY}/contents/${module_name}?ref=${branch_name}")
+          mod_pr=$(curl -s -H "$AUTH_HEADER" -H "$API_HEADER" "$URI/repos/$GITHUB_REPOSITORY/contents/$MOD_NAME?ref=$BRANCH")
           sha_branch=$(echo "$mod_pr" | jq -r .sha)
-          echo $sha_branch
           if [[ "$sha_branch" != "null" ]]; then
               if [[ "$sha_remote" == "$sha_branch" ]]; then
                   echo "This submodule is already updated on the PR branch"
                   exit 0
               else
                   echo "This submodule is outdate on the pr branch"
-                  git push origin --delete $branch_name
+                  git push origin --delete $BRANCH
               fi
           fi
           
@@ -66,14 +58,14 @@ jobs:
           git config --global --add safe.directory /github/workspace
           
           git remote set-url origin https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY.git
-          git config --global user.email "$USER_EMAIL"
-          git config --global user.name "$USER_LOGIN"
+          git config --global user.email '$(echo "$user_response" | jq -r ".email")'
+          git config --global user.name '$(echo "$user_response" | jq -r ".login")'
 
-          git checkout -b $branch_name
-          git submodule update --init --recursive --remote -- art-tools
-          git commit -am "Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]"
-          git push --set-upstream origin $branch_name
-          gh pr create --title "Automated submodule update (${module_name})" --body "Update [${module_name}] submodule to [openshift-eng/$module_name@$module_branch]"
+          git checkout -b $BRANCH
+          git submodule update --init --recursive --remote -- $MOD_NAME
+          git commit -am "Update [$MOD_NAME] submodule to [$MOD_ORG/$MOD_NAME@$MOD_BRANCH]"
+          git push --set-upstream origin $BRANCH
+          gh pr create --title "Automated submodule update [$MOD_NAME]" --body "Update [$MOD_NAME] submodule to [$MOD_ORG/$MOD_NAME@$MOD_BRANCH]"
       
           
           
