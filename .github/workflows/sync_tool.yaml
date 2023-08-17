@@ -65,7 +65,9 @@ jobs:
           git submodule update --init --recursive --remote -- $MOD_NAME
           git commit -am "Update [$MOD_NAME] submodule to [$MOD_ORG/$MOD_NAME@$MOD_BRANCH]"
           git push --set-upstream origin $BRANCH
-          gh pr create --title "Automated submodule update [$MOD_NAME]" --body "Update [$MOD_NAME] submodule to [$MOD_ORG/$MOD_NAME@$MOD_BRANCH]"
+          gh pr create --title "Automated submodule update [$MOD_NAME]" \
+              --body "Update [$MOD_NAME] submodule to [$MOD_ORG/$MOD_NAME@$MOD_BRANCH]" \
+              --label "bump-tools"
       
           
           
