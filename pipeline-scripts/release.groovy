@@ -10,13 +10,11 @@ buildlib = load("pipeline-scripts/buildlib.groovy")
 commonlib = buildlib.commonlib
 slacklib = commonlib.slacklib
 
-oc_cmd = "oc --kubeconfig=/home/jenkins/kubeconfigs/art-publish.kubeconfig"
-
 // dump important tool versions to console
 def stageVersions() {
     sh "oc version"
-    sh "doozer --version"
-    sh "elliott --version"
+    buildlib.doozer "--version"
+    buildlib.elliott "--version"
 }
 
 /**
@@ -45,23 +43,31 @@ def destReleaseTag(String releaseName, String arch) {
  *      Valid advisories must be in QE state and have a live ID so we can
  *      include in release metadata the URL where it will be published.
  */
-Map stageValidation(String quay_url, String dest_release_tag, int advisory = 0, boolean permitPayloadOverwrite = false, boolean permitAnyAdvisoryState = false) {
+Map stageValidation(String quay_url, String dest_release_tag, int advisory = 0, boolean permitPayloadOverwrite = false, boolean permitAnyAdvisoryState = false, String nightly, String arch, boolean skipVerifyBugs = false, boolean skipPayloadCreation = false) {
     def retval = [:]
-    def version = commonlib.extractMajorMinorVersion(dest_release_tag)
+    version = commonlib.extractMajorMinorVersion(dest_release_tag)
     echo "Verifying payload does not already exist"
-    res = commonlib.shell(
+    res = buildlib.withAppCiAsArtPublish() {
+        return commonlib.shell(
             returnAll: true,
-            script: "GOTRACEBACK=all ${oc_cmd} adm release info ${quay_url}:${dest_release_tag}"
-    )
+            script: "GOTRACEBACK=all oc --kubeconfig ${KUBECONFIG} adm release info ${quay_url}:${dest_release_tag}"
+        )
+    }
 
     if(res.returnStatus == 0){
-        if ( permitPayloadOverwrite ) {
+        if (skipPayloadCreation) {
+            echo "A payload with this name already exists. Will skip payload creation."
+        } else if ( permitPayloadOverwrite ) {
             def cd = currentBuild.description
             currentBuild.description = "${currentBuild.description} - INPUT REQUIRED"
             input 'A payload with this name already exists. Overwriting it is destructive if this payload has been publicly released. Proceed anyway?'
             currentBuild.description = cd
         } else {
             error("Payload ${dest_release_tag} already exists! Cannot continue.")
+        }
+    } else {
+        if (skipPayloadCreation) {
+            error("Payload ${dest_release_tag} doesn't exist! Cannot continue.")
         }
     }
 
@@ -73,7 +79,7 @@ Map stageValidation(String quay_url, String dest_release_tag, int advisory = 0, 
         echo "Verifying advisory ${advisory} exists"
         res = commonlib.shell(
                 returnAll: true,
-                script: "elliott --group=openshift-${version} get --json - -- ${advisory}",
+                script: "${buildlib.ELLIOTT_BIN} --group=openshift-${version} get --json - -- ${advisory}",
             )
 
         if(res.returnStatus != 0){
@@ -84,7 +90,7 @@ Map stageValidation(String quay_url, String dest_release_tag, int advisory = 0, 
         echo "Getting current advisory for OCP $version from build data..."
         res = commonlib.shell(
                 returnAll: true,
-                script: "elliott --group=openshift-${version} get --json - --use-default-advisory image",
+                script: "${buildlib.ELLIOTT_BIN} --group=openshift-${version} --assembly ${params.ASSEMBLY ?: 'stream'} get --json - --use-default-advisory image",
             )
         if(res.returnStatus != 0) {
             error("🚫 Advisory number for OCP $version couldn't be found from ocp_build_data.")
@@ -120,11 +126,43 @@ Map stageValidation(String quay_url, String dest_release_tag, int advisory = 0, 
         error("🚫 Advisory ${advisoryInfo.id} doesn't seem to be associated with a live ID.")
     }
 
+    slackChannel = slacklib.to(version)
+    if (nightly && (arch == 'amd64' || arch == 'x86_64')) {
+        echo "Verifying payload"
+        res = commonlib.shell(
+                returnAll: true,
+                script: "elliott --group=openshift-${version} verify-payload registry.ci.openshift.org/ocp/release:${nightly} ${advisoryInfo.id}"
+                )
+        if (res.returnStatus != 0) {
+            slackChannel.failure("elliott verify-payload failed. Advisory content does not match payload.")
+            commonlib.inputRequired(slackChannel) {
+                input 'Advisory content does not match payload. Proceed anyway?'
+            }
+        }
+    }
+
+    if (!skipVerifyBugs) {
+        echo "Verify advisory bugs..."
+        // NOTE: this only verifies bugs on the image advisory specified.  once
+        // promotion transitions to be based on releases.yml, allow
+        // verify-attached-bugs to look up all advisories there
+        res = commonlib.shell(
+            returnAll: true,
+            script: "${buildlib.ELLIOTT_BIN} --group=openshift-${version} verify-attached-bugs ${advisoryInfo.id}",
+        )
+        if(res.returnStatus != 0) {
+            slackChannel.failure("elliott verify-attached-bugs failed.")
+            commonlib.inputRequired(slackChannel) {
+                input "Bug verification failed with the following output; proceed anyway?\n${res.stdout}"
+            }
+        }
+    }
+
     return retval
 }
 
 def getArchPrivSuffix(arch, priv) {
-    def suffix = arch == "x86_64" ? "" : "-${arch}"
+    def suffix = commonlib.goSuffixForArch(arch)  // expect golang in release-controller land
     if (priv)
         suffix <<= '-priv'
     return suffix
@@ -142,7 +180,7 @@ def stageGenPayload(dest_repo, release_name, dest_release_tag, from_release_tag,
         metadata += "}"
     }
 
-    def (arch, priv) = getReleaseTagArchPriv(from_release_tag)
+    def (arch, priv) = from_release_tag ? getReleaseTagArchPriv(from_release_tag) : [params.ARCH, false]
 
     echo "Generating release payload"
     echo "CI release name: ${from_release_tag}"
@@ -153,8 +191,13 @@ def stageGenPayload(dest_repo, release_name, dest_release_tag, from_release_tag,
     def publicSuffix = getArchPrivSuffix(arch, false)
 
     // build oc command
-    def cmd = "GOTRACEBACK=all ${oc_cmd} adm release new "
-    cmd += "-n ocp${publicSuffix} --from-release=registry.svc.ci.openshift.org/ocp${suffix}/release${suffix}:${from_release_tag} "
+    def cmd = "GOTRACEBACK=all oc adm release new "
+    cmd += "-n ocp${publicSuffix} "
+    if (from_release_tag) {
+        cmd += "--from-release=registry.ci.openshift.org/ocp${suffix}/release${suffix}:${from_release_tag} "
+    } else {
+        cmd += "--reference-mode=source --from-image-stream ${params.VERSION}-art-assembly-${params.ASSEMBLY}${publicSuffix} "
+    }
     if (previous != "") {
         cmd += "--previous \"${previous}\" "
     }
@@ -176,14 +219,35 @@ def stageGenPayload(dest_repo, release_name, dest_release_tag, from_release_tag,
         cmd += "--dry-run=true "
     }
 
-    def stdout = commonlib.shell(
-        script: cmd,
-        returnStdout: true
-    )
+    stdout = buildlib.withAppCiAsArtPublish() {
+        cmd += " --kubeconfig ${KUBECONFIG}"
+        return commonlib.shell(
+            script: cmd,
+            returnStdout: true
+        )
+    }
 
     payloadDigest = parseOcpRelease(stdout)
 
     currentBuild.description += " ${payloadDigest}"
+}
+
+def getPayloadDigest(quay_url, release_tag) {
+    def payloadInfo = buildlib.withAppCiAsArtPublish() {
+        def cmd = "GOTRACEBACK=all oc --kubeconfig ${KUBECONFIG} adm release info ${quay_url}:${release_tag} -o json"
+        def stdout = commonlib.shell(
+            script: cmd,
+            returnStdout: true
+        )
+        return readJSON(text: stdout)
+    }
+    return payloadInfo['digest']
+}
+
+def getAdvisories(String group) {
+    def yamlStr = buildlib.doozer("--group ${group} config:read-group advisories --yaml", [capture: true])
+    def yamlData = readYaml text: yamlStr
+    return yamlData
 }
 
 @NonCPS
@@ -216,16 +280,19 @@ def stageSetClientLatest(from_release_tag, arch, client_type) {
 
 def stageTagRelease(quay_url, release_name, release_tag, arch) {
     def publicSuffix = getArchPrivSuffix(arch, false)
-    def cmd = "GOTRACEBACK=all ${oc_cmd} tag ${quay_url}:${release_tag} ocp${publicSuffix}/release${publicSuffix}:${release_name}"
+    def cmd = "GOTRACEBACK=all oc tag ${quay_url}:${release_tag} ocp${publicSuffix}/release${publicSuffix}:${release_name}"
 
     if (params.DRY_RUN) {
         echo "Would have run \n ${cmd}"
         return
     }
 
-    commonlib.shell(
-        script: cmd
-    )
+    buildlib.withAppCiAsArtPublish() {
+        cmd += " --kubeconfig ${KUBECONFIG}"
+        commonlib.shell(
+            script: cmd
+        )
+    }
 }
 
 
@@ -288,18 +355,53 @@ def Map stageWaitForStable(String releaseStream, String releaseName) {
     }
 }
 
+def stageCheckBlockerBug(group){
+    blocker_bugs = commonlib.shell(
+        returnStdout: true,
+        script: "${buildlib.ELLIOTT_BIN} -g ${group} find-bugs:blocker"
+    ).trim()
+
+    echo blocker_bugs
+
+    found = true
+    try {
+        pattern = ~"Found ([0-9]+) bugs"
+        match = blocker_bugs =~ pattern
+        match.find()
+        found = (match[0][1] != '0')
+    } catch(ex) {
+        error("Could not parse Blocker bug output. Please check for blocker bug output")
+    }
+    if (found) {
+        error('Blocker Bugs found! Aborting.')
+    }
+}
+
+def validateInFlightPrevVersion(in_flight_prev, major, prevMinor) {
+    pattern = /$major\.$prevMinor\.(\d+)/
+    match = in_flight_prev =~ pattern
+    match.find()
+    if (match.size() == 1) {
+        return true
+    }
+    return false
+}
+
 def stageGetReleaseInfo(quay_url, release_tag){
-    def cmd = "GOTRACEBACK=all ${oc_cmd} adm release info --pullspecs ${quay_url}:${release_tag}"
+    def cmd = "GOTRACEBACK=all oc adm release info --pullspecs ${quay_url}:${release_tag}"
 
     if (params.DRY_RUN) {
         echo "Would have run \n ${cmd}"
         return "Dry Run - No Info"
     }
 
-    def res = commonlib.shell(
-        returnAll: true,
-        script: cmd
-    )
+    def res = buildlib.withAppCiAsArtPublish() {
+        cmd += " --kubeconfig ${KUBECONFIG}"
+        return commonlib.shell(
+            returnAll: true,
+            script: cmd
+        )
+    }
 
     if (res.returnStatus != 0){
         error(res.stderr)
@@ -308,24 +410,174 @@ def stageGetReleaseInfo(quay_url, release_tag){
     return res.stdout.trim()
 }
 
-def stagePublishClient(quay_url, from_release_tag, release_name, arch, client_type) {
-    def MIRROR_HOST = "use-mirror-upload.ops.rhcloud.com"
-    def MIRROR_V4_BASE_DIR = "/srv/pub/openshift-v4"
+def stagePublishMultiClient(quay_url, from_release_tag, release_name, client_type) {
+    def (major, minor) = commonlib.extractMajorMinorVersionNumbers(release_name)
 
-    // Anything under this directory will be sync'd to MIRROR_HOST /srv/pub/openshift-v4/...
+    // Anything under this directory will be sync'd to the mirror
+    def BASE_TO_MIRROR_DIR="${WORKSPACE}/to_mirror/openshift-v4"
+    def RELEASE_MIRROR_DIR="${BASE_TO_MIRROR_DIR}/multi/clients/${client_type}/${release_name}"
+    sh "rm -rf ${BASE_TO_MIRROR_DIR}"
+
+    for (subarch in commonlib.goArches) {
+        if ( subarch == "multi" ) {
+            continue
+        }
+
+        // From the newly built release, extract the client tools into the workspace following the directory structure
+        // we expect to publish to mirror
+        def CLIENT_MIRROR_DIR="${RELEASE_MIRROR_DIR}/${subarch}"
+        def go_subarch = commonlib.goArchForBrewArch(subarch)
+        sh "mkdir -p ${CLIENT_MIRROR_DIR}"
+
+        def tools_extract_cmd = "MOBY_DISABLE_PIGZ=true GOTRACEBACK=all oc adm release extract --tools --command-os='*' -n ocp " +
+                                    " --filter-by-os=${subarch} --to=${CLIENT_MIRROR_DIR} --from ${quay_url}:${from_release_tag}"
+
+        commonlib.shell(script: tools_extract_cmd)
+        commonlib.shell("cd ${CLIENT_MIRROR_DIR}\n" + '''
+    # External consumers want a link they can rely on.. e.g. .../latest/openshift-client-linux.tgz .
+    # So whatever we extract, remove the version specific info and make a symlink with that name.
+    for f in *.tar.gz *.bz *.zip *.tgz ; do
+
+        # Is this already a link?
+        if [[ -L "$f" ]]; then
+            continue
+        fi
+
+        # example file names:
+        #  - openshift-client-linux-4.3.0-0.nightly-2019-12-06-161135.tar.gz
+        #  - openshift-client-mac-4.3.0-0.nightly-2019-12-06-161135.tar.gz
+        #  - openshift-install-mac-4.3.0-0.nightly-2019-12-06-161135.tar.gz
+        #  - openshift-client-linux-4.1.9.tar.gz
+        #  - openshift-install-mac-4.3.0-0.nightly-s390x-2020-01-06-081137.tar.gz
+        #  ...
+        # So, match, and store in a group, any character up to the point we find -DIGIT. Ignore everything else
+        # until we match (and store in a group) one of the valid file extensions.
+        if [[ "$f" =~ ^([^-]+)((-[^0-9][^-]+)+)-[0-9].*(tar.gz|tgz|bz|zip)$ ]]; then
+            # Create a symlink like openshift-client-linux.tgz => openshift-client-linux-4.3.0-0.nightly-2019-12-06-161135.tar.gz
+            ln -sfn "$f" "${BASH_REMATCH[1]}${BASH_REMATCH[2]}.${BASH_REMATCH[4]}"
+        fi
+    done
+        ''')
+
+        sh "tree $CLIENT_MIRROR_DIR"
+        sh "cat $CLIENT_MIRROR_DIR/sha256sum.txt"
+    }
+
+    // Create a master sha256sum.txt including the sha256sum.txt files from all subarches
+    // This is the file we will sign -- trust is transitive to the subarches
+    commonlib.shell(script: """
+    # change directories so that entries in sha256sum entries are relative subarch dirs and not absolute
+    cd ${RELEASE_MIRROR_DIR}
+    sha256sum */sha256sum.txt > ${RELEASE_MIRROR_DIR}/sha256sum.txt
+    """)
+
+    def mirror_cmd = "aws s3 sync --no-progress --exact-timestamps ${BASE_TO_MIRROR_DIR}/ s3://art-srv-enterprise/pub/openshift-v4/"
+    if ( ! params.DRY_RUN ) {
+        // Publish the clients to our S3 bucket.
+        try {
+            withCredentials([aws(credentialsId: 's3-art-srv-enterprise', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                commonlib.shell(script: mirror_cmd)
+            }
+        } catch (ex) {
+            slacklib.to("#art-release").say("Failed syncing OCP clients to S3 in ${currentBuild.displayName} (${env.JOB_URL})")
+        }
+
+    } else {
+        echo "Not mirroring; would have run: ${mirror_cmd}"
+    }
+
+
+}
+
+def stagePublishClient(quay_url, from_release_tag, release_name, arch, client_type) {
+    def (major, minor) = commonlib.extractMajorMinorVersionNumbers(release_name)
+
+    // Anything under this directory will be sync'd to the mirror
     def BASE_TO_MIRROR_DIR="${WORKSPACE}/to_mirror/openshift-v4"
     sh "rm -rf ${BASE_TO_MIRROR_DIR}"
 
     // From the newly built release, extract the client tools into the workspace following the directory structure
-    // we expect to publish to on the use-mirror system.
+    // we expect to publish to mirror
     def CLIENT_MIRROR_DIR="${BASE_TO_MIRROR_DIR}/${arch}/clients/${client_type}/${release_name}"
     sh "mkdir -p ${CLIENT_MIRROR_DIR}"
+
     def tools_extract_cmd = "MOBY_DISABLE_PIGZ=true GOTRACEBACK=all oc adm release extract --tools --command-os='*' -n ocp " +
                                 " --to=${CLIENT_MIRROR_DIR} --from ${quay_url}:${from_release_tag}"
+    commonlib.shell(script: tools_extract_cmd)
 
-    if (!params.DRY_RUN) {
-        commonlib.shell(script: tools_extract_cmd)
-        commonlib.shell("cd ${CLIENT_MIRROR_DIR}\n" + '''
+    if ( arch == 'x86_64' ) {
+        // oc_mirror_extract_cmd needs to extract to a emtpy folder, since tools_extract_cmd is already extracting to
+        // CLIENT_MIRROR_DIR, creating a temporary folder
+        def TEMP_OC_MIRROR_DIR = "${CLIENT_MIRROR_DIR}/temp-oc-mirror-dir"
+        sh "mkdir ${TEMP_OC_MIRROR_DIR}"
+
+        // oc image  extract requires an empty destination directory. So do this before extracting tools.
+        // oc adm release extract --tools does not require an empty directory, but will overwrite the files.
+        def oc_mirror_extract_cmd = '''
+            # If the release payload contains an oc-mirror artifact image, then extract the oc-mirror binary.
+            if oc adm release info ${QUAY_URL}:${FROM_RELEASE_TAG} --image-for=oc-mirror ; then
+                MOBY_DISABLE_PIGZ=true GOTRACEBACK=all oc image extract `oc adm release info ${QUAY_URL}:${FROM_RELEASE_TAG} --image-for=oc-mirror` --path /usr/bin/oc-mirror:${TEMP_OC_MIRROR_DIR}
+                pushd ${TEMP_OC_MIRROR_DIR}
+                tar zcvf oc-mirror.tar.gz oc-mirror
+                popd
+                pushd ${CLIENT_MIRROR_DIR}
+                cp ${TEMP_OC_MIRROR_DIR}/oc-mirror.tar.gz oc-mirror.tar.gz
+                sha256sum oc-mirror.tar.gz >> sha256sum.txt
+                popd
+                rm -rf ${TEMP_OC_MIRROR_DIR}
+            fi
+        '''
+        withEnv(["CLIENT_MIRROR_DIR=${CLIENT_MIRROR_DIR}", "QUAY_URL=${quay_url}", "FROM_RELEASE_TAG=${from_release_tag}", "TEMP_OC_MIRROR_DIR=${TEMP_OC_MIRROR_DIR}"]) {
+            commonlib.shell(script: oc_mirror_extract_cmd)
+        }
+    }
+
+
+    // Find the GitHub commit id for cli, installer and opm and download the repo at that commit, then publish it.
+    def download_tarballs = '''
+        for image_name in cli installer operator-registry; do
+          # Get the image digest
+          image_digest=$(oc adm release info ${QUAY_URL}:${FROM_RELEASE_TAG} --image-for=${image_name})
+
+          # If it exists
+          if [[ ${image_digest} ]] ; then
+            # Store the image info in a temporary file
+            oc image info --output json "$image_digest" > temp_image_info.json
+
+            # Get the commit SHA, GitHub url of the source and extract the name
+            commit=$( cat temp_image_info.json | jq -r '.config.config.Labels."io.openshift.build.commit.id"')
+            source_url=$( cat temp_image_info.json | jq -r '.config.config.Labels."io.openshift.build.source-location"')
+            source_name=$( echo "$source_url" | cut -d '/' -f 5)
+
+            case $source_name in
+              oc)
+                source_name="openshift-client"
+                ;;
+              installer)
+                source_name="openshift-install"
+                ;;
+              operator-framework-olm)
+                source_name="opm"
+                ;;
+            esac
+
+            # Delete temporary file
+            rm temp_image_info.json
+
+            # Download the tar file to the correct path
+            pushd ${CLIENT_MIRROR_DIR}
+                curl -L -o "${source_name}-src-${FROM_RELEASE_TAG}.tar.gz" "${source_url}/archive/${commit}.tar.gz"
+                sha256sum "${source_name}-src-${FROM_RELEASE_TAG}.tar.gz" >> sha256sum.txt
+            popd
+          fi
+        done
+    '''
+    // Injecting variables directly as env so as to not confuse groovy and bash string interpolation
+    withEnv(["CLIENT_MIRROR_DIR=${CLIENT_MIRROR_DIR}", "QUAY_URL=${quay_url}", "FROM_RELEASE_TAG=${from_release_tag}"]) {
+            commonlib.shell(script: download_tarballs)
+    }
+
+    commonlib.shell("cd ${CLIENT_MIRROR_DIR}\n" + '''
 # External consumers want a link they can rely on.. e.g. .../latest/openshift-client-linux.tgz .
 # So whatever we extract, remove the version specific info and make a symlink with that name.
 for f in *.tar.gz *.bz *.zip *.tgz ; do
@@ -342,57 +594,152 @@ for f in *.tar.gz *.bz *.zip *.tgz ; do
     #  - openshift-client-linux-4.1.9.tar.gz
     #  - openshift-install-mac-4.3.0-0.nightly-s390x-2020-01-06-081137.tar.gz
     #  ...
-    # So, match, and store in a group, any non-digit up to the point we find -DIGIT. Ignore everything else
+    # So, match, and store in a group, any character up to the point we find -DIGIT. Ignore everything else
     # until we match (and store in a group) one of the valid file extensions.
-    if [[ "$f" =~ ^([^0-9]+)-[0-9].*(tar.gz|tgz|bz|zip)$ ]]; then
+    if [[ "$f" =~ ^([^-]+)((-[^0-9][^-]+)+)-[0-9].*(tar.gz|tgz|bz|zip)$ ]]; then
         # Create a symlink like openshift-client-linux.tgz => openshift-client-linux-4.3.0-0.nightly-2019-12-06-161135.tar.gz
-        ln -sfn "$f" "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+        ln -sfn "$f" "${BASH_REMATCH[1]}${BASH_REMATCH[2]}.${BASH_REMATCH[4]}"
     fi
 done
-        ''')
-    } else {
-        echo "Would have run: ${tools_extract_cmd}"
+    ''')
+
+    if ( minor > 0 ) {
+        try {
+            // To encourage customers to explore dev-previews & pre-GA releases, populate changelog
+            // https://issues.redhat.com/browse/ART-3040
+            prevMinor = minor - 1
+            rcURL = commonlib.getReleaseControllerURL(release_name)
+            rcArch = commonlib.getReleaseControllerArch(release_name)
+            stableStream = (rcArch=="amd64")?"4-stable":"4-stable-${rcArch}"
+            outputDest = "${CLIENT_MIRROR_DIR}/changelog.html"
+            outputDestMd = "${CLIENT_MIRROR_DIR}/changelog.md"
+
+            // If the previous minor is not yet GA, look for the latest fc/rc/ec. If the previous minor is GA, this should
+            // always return 4.m.0.
+            prevGA = commonlib.shell(returnStdout: true, script:"curl -s -X GET -G https://amd64.ocp.releases.ci.openshift.org/api/v1/releasestream/4-stable/latest --data-urlencode 'in=>4.${prevMinor}.0-0 <4.${prevMinor}.1' | jq -r .name").trim()
+
+            // See if the previous minor has GA'd yet; e.g. https://amd64.ocp.releases.ci.openshift.org/releasestream/4-stable/release/4.8.0
+            def check = httpRequest(
+                url: "${rcURL}/releasestream/${stableStream}/release/${prevGA}",
+                httpMode: 'GET',
+                validResponseCodes: '200,404',  // if we get 404, do not compute changelog yet; prev has not GA'd.
+                timeout: 30,
+            )
+            if (check.status == 200) {
+                // If prevGA is known to the release controller, compute the changelog html
+                def response = httpRequest(
+                    url: "${rcURL}/changelog?from=${prevGA}&to=${release_name}&format=html",
+                    httpMode: 'GET',
+                    timeout: 180,
+                )
+                writeFile(file: outputDest, text: response.content)
+
+                // Also collect the output in markdown for SD to consume
+                response = httpRequest(
+                    url: "${rcURL}/changelog?from=${prevGA}&to=${release_name}",
+                    httpMode: 'GET',
+                    timeout: 180,
+                )
+                writeFile(file: outputDestMd, text: response.content)
+            } else {
+                writeFile(file: outputDest, text: "<html><body><p>Changelog information cannot be computed for this release. Changelog information will be populated for new releases once ${prevGA} is officially released.</p></body></html>")
+                writeFile(file: outputDestMd, text: "Changelog information cannot be computed for this release. Changelog information will be populated for new releases once ${prevGA} is officially released.")
+            }
+        } catch (clex) {
+            slacklib.to(release_name).failure("Error generating changelog for release", clex)
+        }
     }
 
-    // DO NOT use --delete. We only built a part of openshift-v4 locally and don't want to remove
-    // anything on the mirror.
-    rsync_cmd = "rsync -avzh --chmod=a+rwx,g-w,o-w -e 'ssh -o StrictHostKeyChecking=no' "+
-                " ${BASE_TO_MIRROR_DIR}/ ${MIRROR_HOST}:${MIRROR_V4_BASE_DIR}/ "
+    withEnv(["OUTDIR=$CLIENT_MIRROR_DIR", "PULL_SPEC=${quay_url}:${from_release_tag}", "ARCH=$arch", "VERSION=$release_name"]){
+        commonlib.shell('''
+function extract_opm() {
+    OUTDIR=$1
+    mkdir -p "${OUTDIR}"
+    until OPERATOR_REGISTRY=$(oc adm release info --image-for operator-registry "$PULL_SPEC"); do sleep 10; done
+    # extract opm binaries
+    BINARIES=(opm)
+    PLATFORMS=(linux)
+    if [ "$ARCH" == "x86_64" ]; then  # For x86_64, we have binaries for macOS and Windows
+        BINARIES+=(darwin-amd64-opm windows-amd64-opm)
+        PLATFORMS+=(mac windows)
+    fi
 
+    MAJOR=$(echo "$VERSION" | cut -d . -f 1)
+    MINOR=$(echo "$VERSION" | cut -d . -f 2)
+
+    PATH_ARGS=()
+    for binary in ${BINARIES[@]}; do
+        PATH_ARGS+=(--path "/usr/bin/registry/$binary:$OUTDIR")
+    done
+
+    GOTRACEBACK=all oc -v4 image extract --confirm --only-files "${PATH_ARGS[@]}" -- "$OPERATOR_REGISTRY"
+
+    # Compress binaries into tar.gz files and calculate sha256 digests
+    pushd "$OUTDIR"
+    for idx in ${!BINARIES[@]}; do
+        binary=${BINARIES[idx]}
+        platform=${PLATFORMS[idx]}
+        chmod +x "$binary"
+        tar -czvf "opm-$platform-$VERSION.tar.gz" "$binary"
+        rm "$binary"
+        ln -sf "opm-$platform-$VERSION.tar.gz" "opm-$platform.tar.gz"
+        sha256sum "opm-$platform-$VERSION.tar.gz" >> sha256sum.txt
+    done
+    popd
+}
+extract_opm "$OUTDIR"
+        ''')
+    }
+
+    sh "tree $CLIENT_MIRROR_DIR"
+    sh "cat $CLIENT_MIRROR_DIR/sha256sum.txt"
+
+    mirror_cmd = "aws s3 sync --no-progress --exact-timestamps ${BASE_TO_MIRROR_DIR}/ s3://art-srv-enterprise/pub/openshift-v4/"
     if ( ! params.DRY_RUN ) {
-        commonlib.shell(script: rsync_cmd)
-        timeout(time: 60, unit: 'MINUTES') {
-			mirror_result = buildlib.invoke_on_use_mirror("push.pub.sh", "openshift-v4", '-v')
-			if (mirror_result.contains("[FAILURE]")) {
-				echo(mirror_result)
-				error("Error running signed artifact sync push.pub.sh:\n${mirror_result}")
-			}
+        // Publish the clients to our S3 bucket.
+        try {
+            withCredentials([aws(credentialsId: 's3-art-srv-enterprise', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                commonlib.shell(script: mirror_cmd)
+            }
+        } catch (ex) {
+            slacklib.to("#art-release").say("Failed syncing OCP clients to S3 in ${currentBuild.displayName} (${env.JOB_URL})")
         }
+
     } else {
-        echo "Not mirroring; would have run: ${rsync_cmd}"
+        echo "Not mirroring; would have run: ${mirror_cmd}"
     }
 
 }
 
 /**
- * Derive an architecture name and private release flag from a CI release tag.
+ * Derive an architecture name and private flag from a release registry repo tag.
  * e.g.
  *   4.1.0-0.nightly-2019-11-08-213727 will return [x86_64, false]
  *   4.1.0-0.nightly-priv-2019-11-08-213727 will return [x86_64, true]
  *   4.1.0-0.nightly-s390x-2019-11-08-213727 will return [s390x, false]
  *   4.1.0-0.nightly-s390x-priv-2019-11-08-213727 will return [s390x, true]
+ *   4.9.0-0.nightly-arm64-priv-2021-06-08-213727 will return [aarch64, true]
+ *   Should also work for stable tags like:
+ *   4.10.42-x86_64       returns [x86_64, false]
+ *   4.12.0-ec.2-aarch64  returns [aarch64, false]
+ *   And even release names (should be no repo tags like this) like:
+ *   4.10.42              returns [params.ARCH || x86_64, false]
+ *   4.12.0-ec.2          returns [params.ARCH || x86_64, false]
  */
 def getReleaseTagArchPriv(from_release_tag) {
-    // 4.1.0-0.nightly-s390x-2019-11-08-213727  ->   [4.1.0, 0.nightly, s390x, 2019, 11, 08, 213727]
     def nameComponents = from_release_tag.split('-')
-    def arch = "x86_64"
-    def priv = false
-    if (nameComponents[2] == "priv") {
-        priv = true
-    } else if (!nameComponents[2].isNumber()) {
-        arch = nameComponents[2]
-        priv = nameComponents[3] == "priv"
+    // 4.1.0-0.nightly-s390x-2019-11-08-213727  ->   [4.1.0, 0.nightly, s390x, 2019, 11, 08, 213727]
+
+    def priv = "priv" in nameComponents
+    def arch = "auto"
+    if ( params.ARCH ) {
+        arch = params.ARCH
     }
+    for (arch_cmp in commonlib.goArches + commonlib.brewArches)
+        if (arch_cmp in nameComponents)
+            arch = commonlib.brewArchForGoArch(arch_cmp)
+    if (arch == "auto" || !arch)
+        arch = "x86_64"  // original default before arches were specified
     return [arch, priv]
 }
 
@@ -520,33 +867,34 @@ def signArtifacts(Map signingParams) {
             string(name: "KEY_NAME", value: signingParams.key_name),
             string(name: "ARCH", value: signingParams.arch),
             string(name: "DIGEST", value: signingParams.digest),
+            string(name: "PRODUCT", value: signingParams.product),
         ]
     )
 }
 
 /**
  * Opens a series of PRs against the cincinnati-graph-data GitHub repository.
- *    Specifically, a PR for each channel prefix (e.g. candidate, fast, stable) associated with the specified release
- *    and the next minor channels (major.minor+1) IFF those channels currently exist.
+ *    Specifically, a PR for the version-agnostic candidate channel.
  * @param releaseName The name of the release (e.g. "4.3.6")
  * @param advisory The internal advisory number in errata tool. Specify -1 if there is no advisory (e.g. hotfix or rc).
- * @param candidate_only Only open PR for candidate; there is no advisory
  * @param ghorg For testing purposes, you can call this method specifying a personal github org/account. The
  *        openshift-bot must be a contributor in your fork of cincinnati-graph-data.
- * @param noSlackOutput If true, ota-monitor will not be notified
+ * @param candidate_pr_note additional Cincinnati candidate PR text
  */
-def openCincinnatiPRs(releaseName, advisory, candidate_only = false,ghorg = 'openshift', noSlackOutput=false) {
+def openCincinnatiPRs(releaseName, advisory, ghorg='openshift', candidate_pr_note='') {
     def (major, minor) = commonlib.extractMajorMinorVersionNumbers(releaseName)
     if ( major != 4 ) {
         error("Unable to open PRs for unknown major minor: ${major}.${minor}")
     }
     def internal_errata_url = "https://errata.devel.redhat.com/advisory/${advisory}"
-    def minorNext = minor + 1
-    boolean isReleaseCandidate = candidate_only
+    boolean isReleaseCandidate = commonlib.isPreRelease(releaseName)
 
-    if ( candidate_only || advisory.toInteger() <= 0 ) {
+    if ( isReleaseCandidate || advisory.toInteger() <= 0 ) {
         // There is not advisory for this release
         internal_errata_url = ''
+    }
+    if ( !isReleaseCandidate && internal_errata_url == '' ) {
+       error("Only pre-releases are allowed to skip errata, and ${releaseName} is not a pre-release")
     }
 
     sshagent(["openshift-bot"]) {
@@ -556,24 +904,11 @@ def openCincinnatiPRs(releaseName, advisory, candidate_only = false,ghorg = 'ope
         sh "rm -f ${prs_file} && touch ${prs_file}"  // make sure we start with a clean slate
 
         sh "git clone git@github.com:${ghorg}/cincinnati-graph-data.git"
-        dir('cincinnati-graph-data/channels') {
-            def prefixes = [ "candidate", "fast", "stable"]
-            if ( major == 4 && minor == 1 ) {
-                prefixes = [ "prerelease", "stable"]
-            }
-
-            if (isReleaseCandidate) {
-                // Release Candidates never go past candidate
-                prefixes = prefixes.subList(0, 1)
-            }
-
+        dir('cincinnati-graph-data/internal-channels') {
+            def channels = [ "candidate" ]  // we used to manage more...
             prURLs = [:]  // Will map channel to opened PR
-            for ( String prefix : prefixes ) {
-                channel = "${prefix}-${major}.${minor}"
+            for ( String channel : channels ) {
                 channelFile = "${channel}.yaml"
-                upgradeChannel = "${prefix}-${major}.${minorNext}"
-                upgradeChannelFile = "${upgradeChannel}.yaml"
-
                 channelYaml = [ name: channel, versions: [] ]
                 if (fileExists(channelFile)) {
                     channelYaml = readYaml(file: channelFile)
@@ -598,67 +933,34 @@ def openCincinnatiPRs(releaseName, advisory, candidate_only = false,ghorg = 'ope
 
                 addToChannel = !isInChannel(releaseName, channelYaml.get('versions', []))
 
-                upgradeChannelYaml = [ name: upgradeChannel, versions: [] ]
-                addToUpgradeChannel = false
-                releasesForUpgradeChannel = []
-                if ( internal_errata_url || isReleaseCandidate ) {
-                    if (fileExists(upgradeChannelFile)) {
-                        upgradeChannelYaml = readYaml(file: upgradeChannelFile)
-                        upgradeChannelVersions = upgradeChannelYaml.get('versions', [])
+                echo "Creating PR for ${channel} channel"
+                branchName = "pr-${channel}-${releaseName}"
+                pr_title = "Enable ${releaseName} in ${channel} channel"
 
-                        // at least one version must be present & make sure that releaseName is not already there
-                        if ( upgradeChannelVersions && !isInChannel(releaseName, upgradeChannelVersions) ) {
-                            releasesForUpgradeChannel = [ releaseName ]
-                            addToUpgradeChannel = true
-                        }
-                    }
-                } else {
-                    // This is just a tactical release for a given customer (e.g. promoting a nightly).
-                    // There should no upgrade path encouraged for it.
-                }
-
-                echo "Creating PR for ${prefix} channel(s)"
-                branchName = "pr-${prefix}-${releaseName}"
-                pr_title = "Enable ${releaseName} in ${prefix} channel(s)"
-
-                labelArgs = ''
+                labelArgs = "-l 'lgtm,approved'"
+                extraSlackComment = ''
 
                 pr_messages = [ pr_title ]
 
                 if ( internal_errata_url ) {
-                    switch(prefix) {
-                        case 'prerelease':
+                    switch(channel) {
                         case 'candidate':
+                            if (candidate_pr_note) {
+                                pr_messages << candidate_pr_note
+                            }
                             pr_messages << "Please merge immediately. This PR does not need to wait for an advisory to ship, but the associated advisory is ${internal_errata_url} ."
-                            break
-                        case 'fast':
-                            pr_messages << "Please merge as soon as ${internal_errata_url} is shipped live OR if a Cincinnati-first release is approved."
-                            if (prURLs.containsKey('candidate')) {
-                                pr_messages << "This should provide adequate soak time for candidate channel PR ${prURLs.candidate}"
-                            }
-                            // For non-candidate, put a hold on the PR to prevent accidental merging
-                            labelArgs = "-l 'do-not-merge/hold'"
-                            break
-                        case 'stable':
-                            // For non-candidate, put a hold on the PR to prevent accidental merging
-                            labelArgs = "-l 'do-not-merge/hold'"
-                            pr_messages << "Please merge within 48 hours of ${internal_errata_url} shipping live OR a Cincinnati-first release."
-
-                            if (prURLs.containsKey('prerelease')) {
-                                pr_messages << "This should provide adequate soak time for prerelease channel PR ${prURLs.prerelease}"
-                            }
-                            if (prURLs.containsKey('fast')) {
-                                pr_messages << "This should provide adequate soak time for fast channel PR ${prURLs.fast}"
-                            }
-
+                            extraSlackComment = "automatically approved"
                             break
                         default:
-                            error("Unknown prefix: ${prefix}")
+                            error("Unknown channel: ${channel}")
                     }
-                } else {
+                } else {  // merge non-GA release PRs immediately
                     if ( isReleaseCandidate ) {
                         // Errata is irrelevant for release candidate.
                         pr_messages << "This is a release candidate. There is no advisory associated."
+                        if (candidate_pr_note) {
+                            pr_messages << candidate_pr_note
+                        }
                         pr_messages << 'Please merge immediately.'
                     } else {
                         pr_messages << "Promoting a hotfix release (e.g. for a single customer). There is no advisory associated."
@@ -666,12 +968,8 @@ def openCincinnatiPRs(releaseName, advisory, candidate_only = false,ghorg = 'ope
                     }
                 }
 
-                if ( addToUpgradeChannel ) {
-                    pr_messages << "This PR will also enable upgrades from ${releaseName} to releases in ${upgradeChannel}"
-                }
-
-                if ( !addToChannel && !addToUpgradeChannel ) {
-                    def pr_info = "No Cincinnati PRs opened for ${prefix}. Might have been done by previous architecture's release build.\n"
+                if ( !addToChannel ) {
+                    def pr_info = "No Cincinnati PRs opened for ${channel}. Might have been done by previous architecture's release build.\n"
                     echo pr_info
                     currentBuild.description += pr_info
                     continue
@@ -697,43 +995,45 @@ def openCincinnatiPRs(releaseName, advisory, candidate_only = false,ghorg = 'ope
                             echo '- ${releaseName}' >> ${channelFile}   # add the entry
                             git add ${channelFile}
                         fi
-                        if [[ "${addToUpgradeChannel}" == "true" ]]; then
-                            # We want to insert the previous minors right after versions: so they stay above other entries.
-                            # Why not set it in right before the next minor begins? Because we don't confuse a comment line that might exist above the next minor.
-                            # First, create a file with the content we want to insert
-                            echo -n > ul.txt  # Clear from previous channels
-                            for urn in ${releasesForUpgradeChannel.join(' ')} ; do
-                                echo "- \$urn" >> ul.txt  # add the entry to lines to insert
-                            done
-                            echo >> ul.txt
-                            rm -f slice*  # Remove any files from previous csplit runs
-                            csplit ${upgradeChannelFile} '/versions:/+1' --prefix slice   # create slice00 (up to and including versions:) and slice01 (everything after)
-                            cat slice00 ul.txt slice01 > ${upgradeChannelFile}
-                            git add ${upgradeChannelFile}
-                        fi
                         git commit -m "${pr_title}"
                         git push -u origin ${branchName}
                         export GITHUB_TOKEN=${access_token}
-                        hub pull-request -b ${ghorg}:master ${labelArgs} -h ${ghorg}:${branchName} ${messageArgs} > ${prefix}.pr
-                        cat ${prefix}.pr >> ${prs_file}    # Aggregate all PRs
+                        hub pull-request -b ${ghorg}:master ${labelArgs} -h ${ghorg}:${branchName} ${messageArgs} > ${channel}.pr
+                        cat ${channel}.pr >> ${prs_file}    # Aggregate all PRs
+                        if test -n "${extraSlackComment}"; then
+                            echo "${extraSlackComment}" >> "${prs_file}"
+                        fi
                         """
 
-                    prURLs[prefix] = readFile("${prefix}.pr").trim()
+                    prURLs[channel] = readFile("${channel}.pr").trim()
                 }
             }
 
-            def prs = readFile(prs_file).trim()
-            if ( prs ) {  // did we open any?
-                def slack_msg = "Hi @ota-monitor . ART has opened Cincinnati PRs requiring your attention for ${releaseName}:\n${prs}"
-                if ( ghorg == 'openshift' && !noSlackOutput) {
-                    slacklib.to('#forum-release').say(slack_msg)
-                } else {
-                    echo "Would have sent the following slack notification to #forum-release"
-                    echo slack_msg
-                }
-            }
-
+            return readFile(prs_file).trim()
         }
+    }
+}
+
+def sendCincinnatiPRsSlackNotification(releaseName, fromReleaseTag, prs, ghorg='openshift', noSlackOutput=false, additional_text='') {
+    def (major, minor) = commonlib.extractMajorMinorVersionNumbers(releaseName)
+
+    def slack_msg = "ART has opened Cincinnati PRs for ${releaseName}:\n\n"
+    if (fromReleaseTag) {
+        slack_msg += "This release was promoted using nightly"
+        for (nightly in commonlib.parseList(fromReleaseTag)) {
+            slack_msg += " registry.ci.openshift.org/ocp/release:${nightly}\n"
+        }
+    }
+    slack_msg += "\n${prs}\n"
+    if (additional_text) {
+        slack_msg += "${additional_text}\n"
+    }
+
+    if ( ghorg == 'openshift' && !noSlackOutput) {
+        slacklib.to('#forum-release').say(slack_msg)
+    } else {
+        echo "Would have sent the following slack notification to #forum-release"
+        echo slack_msg
     }
 }
 

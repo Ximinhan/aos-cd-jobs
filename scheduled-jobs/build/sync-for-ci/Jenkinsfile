@@ -1,41 +1,78 @@
-properties( [
-        buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '', numToKeepStr: '100')),
-        disableConcurrentBuilds(),
-            ]
-)
+properties([
+    buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '', numToKeepStr: '100')),
+    disableConcurrentBuilds(),
+    disableResume(),
+    [
+        $class: 'ParametersDefinitionProperty',
+        parameterDefinitions: [
+            string(
+                name: 'ONLY_FOR_VERSION',
+                description: 'Specify a single version (e.g. 4.9) to run the sync for',
+                defaultValue: "",
+                trim: true,
+            ),
+        ]
+    ],
+])
 
 description = ""
 failed = false
 
 def runFor(group, dir, arch="x86_64") {
     echo "Triggering reposync for ${group}-${arch}"
-    b = build       job: '/aos-cd-builds/build%2Fsync-for-ci', propagate: false,
-                    parameters: [ string(name: 'GROUP', value: group ),
-                                  string(name: 'REPOSYNC_DIR', value: dir),
-                                  string(name: 'ARCH', value: arch),
-                                ]
-
-    description += "${group}-${arch} - ${b.result}\n"
+    description += "${group}-${arch}"
+    timeout(activity: true, time: 30, unit: 'MINUTES') {
+        b = build(
+            job: '/aos-cd-builds/build%2Fsync-for-ci', propagate: false,
+            parameters: [
+                string(name: 'GROUP', value: group ),
+                string(name: 'REPOSYNC_DIR', value: dir),
+                string(name: 'ARCH', value: arch),
+            ],
+        )
+    }
+    description += " - ${b.result}\n"
     failed |= (b.result != "SUCCESS")
 }
 
 @NonCPS
 def sortedVersions() {
-  return commonlib.ocp4Versions.sort(false)
+  // Return versions honoring semver, but exclude disabled
+  def disabled = []
+  def s = commonlib.ocp4Versions.sort(false) {
+    def major_minor = it.tokenize('.')
+
+    assert major_minor.size() == 2
+
+    def major = major_minor[0].toInteger()
+    def minor = major_minor[1].toInteger()
+
+    major*100000 + minor
+  }
+  return s.findAll { !disabled.contains(it) }
 }
 
 node() {
     checkout scm
     buildlib = load("pipeline-scripts/buildlib.groovy")
     commonlib = buildlib.commonlib
-    for ( String version : sortedVersions() ) {
+    def versionsToSync = sortedVersions()
+    if (params.ONLY_FOR_VERSION) {
+        versionsToSync = [params.ONLY_FOR_VERSION]
+    }
+    for ( String version : versionsToSync ) {
         group = "openshift-${version}"
         def arches = buildlib.branch_arches(group)
+
         for ( String arch : arches ) {
             runFor(group, version, arch)
+            if ( version == sortedVersions()[-1] ) {
+                def (major, minor) = commonlib.extractMajorMinorVersionNumbers(version)
+                runFor(group, "${major}.${minor+1}", arch)
+                runFor('ci-deps', 'ci-deps', 'x86_64')
+            }
         }
     }
-    runFor('ci-deps', 'ci-deps', 'x86_64')
 }
 
 currentBuild.description = description.trim()

@@ -8,29 +8,92 @@ import groovy.json.JsonOutput
 
 
 @Field commonlib
+@Field buildlib
 
 // A map of release stream names to be polled and and actions to be taken
 @Field final ACTIONS = [
-    // "4.7.0-0.nightly": this.&startPreReleaseJob,
-    // "4.7.0-0.nightly-s390x": this.&startPreReleaseJob,
-    // "4.7.0-0.nightly-ppc64le": this.&startPreReleaseJob,
+    // as part of 4.next we will manually publish only sprintly dev-previews
+    "4-dev-preview": [this.&setDevPreviewLatest],
+    "4-dev-preview-s390x": [this.&setDevPreviewLatest],
+    "4-dev-preview-ppc64le": [this.&setDevPreviewLatest],
+    "4-dev-preview-arm64": [this.&setDevPreviewLatest],
+
+    // 4.14 microshift rebase is expected to fail
+    // should be enabled when resolved
+    // see thread https://redhat-internal.slack.com/archives/CB95J6R4N/p1684351657158089
+    "4.14.0-0.nightly":  [this.&startBuildMicroshiftJob, this.&publishRPMsEl9, this.&publishRPMsEl8],
+    "4.14.0-0.nightly-arm64": [this.&publishRPMsEl9, this.&publishRPMsEl8],
+
+    "4.13.0-0.nightly":  [this.&startBuildMicroshiftJob, this.&publishRPMsEl9, this.&publishRPMsEl8],
+    "4.13.0-0.nightly-arm64": [this.&publishRPMsEl9, this.&publishRPMsEl8],
+
+    "4.12.0-0.nightly":  [this.&startBuildMicroshiftJob, this.&publishRPMsEl8],
+    "4.12.0-0.nightly-arm64": [this.&publishRPMsEl8],
 ]
 
-def startPreReleaseJob(String releaseStream, Map latestRelease, Map previousRelease) {
+def setDevPreviewLatest(String releaseStream, Map latestRelease, Map previousRelease) {
+    def buildVersion = commonlib.extractMajorMinorVersion(latestRelease.name)
+    def arch = commonlib.extractArchFromReleaseName(releaseStream)
+    release.stageSetClientLatest("candidate-${buildVersion}", arch, "ocp-dev-preview")
+}
+
+def publishRPMsEl9(String releaseStream, Map latestRelease, Map previousRelease) {
     def buildVersion = commonlib.extractMajorMinorVersion(releaseStream)
     def arch = commonlib.extractArchFromReleaseName(latestRelease.name)
     build(
-        job: '/aos-cd-builds/build%2Fpre-release',
+        job: '/aos-cd-builds/build%2Fpublish-rpms',
         parameters: [
             string(name: 'BUILD_VERSION', value: buildVersion),
             string(name: 'ARCH', value: arch),
-            string(name: 'FROM_RELEASE_TAG', value: latestRelease.name),
-            booleanParam(name: 'MIRROR', value: true),
-            booleanParam(name: 'SUPPRESS_EMAIL', value: true),
+            string(name: 'EL_VERSION', value: '9'),
         ],
     )
 }
 
+def publishRPMsEl8(String releaseStream, Map latestRelease, Map previousRelease) {
+    def buildVersion = commonlib.extractMajorMinorVersion(releaseStream)
+    def arch = commonlib.extractArchFromReleaseName(latestRelease.name)
+    build(
+        job: '/aos-cd-builds/build%2Fpublish-rpms',
+        parameters: [
+            string(name: 'BUILD_VERSION', value: buildVersion),
+            string(name: 'ARCH', value: arch),
+            string(name: 'EL_VERSION', value: '8'),
+        ],
+    )
+}
+
+def startBuildMicroshiftJob(String releaseStream, Map latestRelease, Map previousRelease) {
+    buildlib.withAppCiAsArtPublish() {
+        sh "oc registry login"
+    }
+    // This function is invoked when a new x86_64 is created and accepted by the Release Controller
+    def buildVersion = commonlib.extractMajorMinorVersion(releaseStream)
+    def x86_64_nightly = latestRelease.name
+    // Get all nightlies matching the x86_64 nightly
+    echo "Get nightlies matching the x86_64 nightly ${x86_64_nightly}..."
+    def cmd = "doozer --assembly=stream --arches x86_64,aarch64 --group openshift-${buildVersion} --working-dir ./doozer-working get-nightlies --matching ${x86_64_nightly}"
+    def res = commonlib.shell(script: cmd, returnAll: true)
+    if (res.returnStatus != 0) {
+        if (res.combined.contains("Found no nightlies") || res.combined.contains("No sets of equivalent nightlies")) {
+            // Couldn't find consistent and accepted nightlies matching the x86_64 nightly
+            echo "WARNING: Couldn't find consistent and accepted nightlies matching the x86_64 nightly ${x86_64_nightly}. Will not trigger build-microshift."
+            return
+        }
+        error("Error getting nightlies matching ${x86_64_nightly}: ${res.stderr}")
+    }
+    // Trigger build-microshift
+    def nightlies = res.stdout.trim()
+    build(
+        job: "../aos-cd-builds/build%2Fbuild-microshift",
+        propagate: false,
+        parameters: [
+            string(name: 'BUILD_VERSION', value: buildVersion),
+            string(name: 'ASSEMBLY', value: "microshift"),
+            string(name: 'RELEASE_PAYLOADS', value: nightlies),
+        ]
+    )
+}
 
 /**
  * Determine if the latest release has been changed
@@ -71,13 +134,18 @@ def saveToReleaseCache(Map release, String releaseCacheFile) {
 properties([
     buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '30', numToKeepStr: '')),
     disableConcurrentBuilds(),
+    disableResume(),
 ])
 
 node() {
     checkout scm
-    commonlib = load("pipeline-scripts/commonlib.groovy")
+    buildlib = load("pipeline-scripts/buildlib.groovy")
+    commonlib = buildlib.commonlib
     description = ""
     def actionArguments = [:]
+    if (ACTIONS.isEmpty()) {
+        return
+    }
     for (releaseStream in ACTIONS.keySet()) {
         def releaseCacheFile = "${releaseStream}.json"
         def changed, latestRelease, previousRelease
@@ -103,12 +171,15 @@ node() {
     parallel(actionArguments.collectEntries({ releaseStream, args ->
         [releaseStream, {
             stage(releaseStream) {
-                try {
-                    echo "Invoking action for $releaseStream"
-                    ACTIONS[releaseStream](args[0], args[1], args[2])
-                } catch (Exception ex) {
-                    echo "Error invoking action for $releaseStream: $ex"
-                    currentBuild.result = "UNSTABLE"
+                echo "Invoking actions for $releaseStream"
+                def actions = ACTIONS[releaseStream]
+                actions.eachWithIndex { fn, idx ->
+                    try {
+                        fn(args[0], args[1], args[2])
+                    } catch (Exception ex) {
+                        echo "Error invoking action number ${idx} for $releaseStream with arguments '${args}': $ex"
+                        currentBuild.result = "UNSTABLE"
+                    }
                 }
             }
         }]

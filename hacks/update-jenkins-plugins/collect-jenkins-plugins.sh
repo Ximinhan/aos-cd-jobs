@@ -99,19 +99,20 @@ get_plugin() {
 
     plugin=$(echo "${plugin_line}:" | cut -d : -f 1)
     plugin_version=$(echo "${plugin_line}:" | cut -d : -f 2)
-
+    
     if [ -z "${plugin_version}" -o "${plugin_version}" == "latest" ]; then
-        plugin_url="https://updates.jenkins-ci.org/latest/${plugin}.hpi"
+        plugin_url="https://ftp.belnet.be/pub/jenkins/plugins/${plugin}/latest/${plugin}.hpi"
     else
-        plugin_url="https://updates.jenkins-ci.org/download/plugins/${plugin}/${plugin_version}/${plugin}.hpi"
+        plugin_url="https://ftp.belnet.be/pub/jenkins/plugins/${plugin}/${plugin_version}/${plugin}.hpi"
     fi
+
     tmp_hpi_file="${tmp_hpis_dir}/${plugin}.hpi"
 
     echo "Downloading plugin: ${plugin_url}"
     wget -O "${tmp_hpi_file}" "${plugin_url}" 2> /dev/null
     if [ "$?" != "0" ]; then
         echo "Error downloading ${plugin}; exiting"
-        exit 1
+        return 1
     fi
 
     extract="${workingdir}/extracts/${plugin}"
@@ -196,7 +197,7 @@ for plugin_entry in ${DEP_LIST}; do
     plugin_line=${plugin_line%\;*}
 
     stripped_entry=$(echo "${plugin_entry}:" | cut -d : -f 1)  # Strip off the version since Jenkins doesn't really honor dependency versions
-    get_plugin "${stripped_entry}" || exit 1
+    get_plugin "${stripped_entry}" || get_plugin "${plugin_entry}" || exit 1
 done
 
 echo

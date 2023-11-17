@@ -2,7 +2,8 @@
 properties( [
     buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '', numToKeepStr: '100')),
     disableConcurrentBuilds(),
-    ] )
+    disableResume(),
+] )
 
 description = ""
 failed = false
@@ -12,7 +13,6 @@ b = build(
     propagate: false,
     parameters: [
         string(name: 'BUILD_VERSION', value: '3.11'),
-        string(name: 'BUILD_MODE', value: 'pre-release'),
     ]
 )
 failed |= (b.result != "SUCCESS")

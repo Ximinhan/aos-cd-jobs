@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+shopt -s extglob
 
-# Data
-
-releases=(
-  3.11
-  4.2
-  4.3
-  4.4
-  4.5
-  4.6
+topics=(
+  jenkins
+  rhcos
+  bz
+  backlog
+  prs
+  triage_docs
 )
 
+browsers=(
+  brave
+  chrome
+  chromium
+  firefox
+  mozilla-firefox
+  qutebrowser
+)
+
+
+# Data
 gh_repos=(
   aos-cd-jobs
   ocp-build-data
@@ -20,6 +29,14 @@ gh_repos=(
   elliott
   art-ci-toolkit
   art-bot
+  ocp-build-data-validator
+)
+
+rhcos_consoles=(
+  'https://console-openshift-console.apps.ocp-virt.prod.psi.redhat.com/k8s/ns/rhcos-art/pods'
+  'https://p8.psi.redhat.com:8443/console/project/rhcos/browse/pipelines'
+  'https://osbs-s390x-3.prod.engineering.redhat.com:8443/console/project/rhcos/browse/pipelines'
+  'https://osbs-aarch64-1.engineering.redhat.com:8443/console/project/rhcos/'
 )
 
 bz_query_params=(
@@ -48,74 +65,67 @@ halp() {
   cat <<-EOF
 	$0: Open all links needed for the triage manager role in a single browser window.
 	Listens to the \$BROWSER environment variable to select the browser. Currently supports
-	chrome, firefox and qutebrowser.
+	${browsers[@]}.
+	The following topic may be selected: ${topics[@]}.
+
+	Usage:
+	  $0 firefox rhcos bz
+
 	For more information about the RedHat Openshift ART Triage manager role, visit
 	https://mojo.redhat.com/docs/DOC-1207451
 	EOF
 }
 
+make_pattern() {
+  declare -n arr="$1"
+  echo "^($(echo "${arr[@]}" | tr ' ' '|'))$"
+}
+
 main() {
+  declare -a user_topics=()
+  topic_pattern="$(make_pattern topics)"
+  browser_pattern="$(make_pattern browsers)"
   for arg in "$@"; do
-    case "$arg" in
-    -h | --help | help)
+    if [[ "$arg" =~ ^(-h|help|--help)$ ]]; then
       halp
       exit 0
-      ;;
-    *)
+    elif [[ "$arg" =~ $topic_pattern ]]; then
+      [[ "$arg" == pr ]] && arg=prs
+      user_topics+=("$arg")
+    elif [[ "$arg" =~ $browser_pattern ]]; then
       browser="$arg"
-      ;;
-    esac
+    else
+      echo "Do not understand $arg" >/dev/stderr
+      halp >/dev/stderr
+      exit 1
+    fi
   done
 
   : ${browser:=${BROWSER-firefox}}
 
-  urls=(
-    $(jenkins)
-    $(rhcos_urls)
-    $(bz_non_cves)
-    $(bz_cves)
-    $(backlog)
-    $(repo_links)
-    $(triage_docs)
-  )
-
-  case "$browser" in
-  qutebrowser)
-    cmd="qutebrowser '${urls[0]}'"
-    fmt=" ':open --tab %s'"
-    ;;
-  firefox)
-    cmd="firefox -url '${urls[0]}'"
-    fmt=' -url "%s"'
-    ;;
-  chrome)
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      cmd="/Applications/Google\\ \\Chrome.app/Contents/MacOS/Google\\ \\Chrome --new-window '${urls[0]}'"
-    else
-      cmd="google-chrome --new-window '${urls[0]}'"
-    fi
-    fmt=' -url "%s"'
-    ;;
-  chromium)
-    cmd="chromium-browser --new-window '${urls[0]}'"
-    fmt=' -url "%s"'
-    ;;
-  *)
-    echo "Do not understand browser $BROWSER. Exiting"
-    halp >/dev/stderr
-    exit 1
-    ;;
-  esac
-
-  cmd="$cmd $(printf "$fmt" "${urls[@]:1}")"
-
-  if [[ -n "${I3SOCK:-}" ]]; then
-    # We are running in i3. Use i3-msg exec
-    cmd="i3-msg exec -- \"$cmd\""
-  fi
-  echo "$cmd" >/dev/stderr
-  eval "$cmd"
+  (( ${#user_topics[@]} == 0 )) && user_topics=( "${topics[@]}" )
+  urls=( $(for topic in "${user_topics[@]}"; do "$topic"; done) )
+  open-urls
 }
+
+releases=(
+  $(
+    sourcefile="$BASH_SOURCE"
+    executable="$(readlink -f "$sourcefile")"
+    commonlib="${executable%/*/*/*}/pipeline-scripts/commonlib.groovy"
+
+    [[ -f "$commonlib" ]] || {
+      echo "Script assumes ocp-cat is symlinked to aos-cd-jobs. Fail">/dev/stderr
+      exit 1
+    }
+
+    awk -F'"' '
+      /^ocp[34]Versions/ { f=1 }
+      f && /^]/ { f=0 }
+      f && NF>2 { print $2 }
+    ' "$commonlib" | sort --version-sort
+  )
+)
 
 bugzilla() {
   local bz_components=(
@@ -136,43 +146,57 @@ bugzilla() {
   echo "${base_url}${query}${release_query}"
 }
 
-bz_non_cves() {
+bz() {
+  # non-cves
   echo "$(bugzilla)&keywords=SecurityTracking%2C%20&keywords_type=nowords"
-}
-
-bz_cves() {
+  # cves
   echo "$(bugzilla)&keywords=SecurityTracking%2C%20&keywords_type=allwords"
 }
 
-rhcos_urls() {
+rhcos() {
+  local r major minor
   for r in "${releases[@]}"; do
-    # openshift-4 and higher, ending with .0
-    [[ "$r" =~ ^[4-9][0-9]*\. ]] &&
-      echo "https://jenkins-rhcos-art.cloud.privileged.psi.redhat.com/job/rhcos-art-rhcos-$r/"
+    major="${r%.*}"
+    minor="${r#*.}"
+    (( major < 4 )) && continue
+    if (( minor < 9 )); then
+      echo "https://jenkins-rhcos-art.apps.ocp-virt.prod.psi.redhat.com/job/rhcos-art/job/rhcos-art-rhcos-$r/"
+      echo "https://jenkins-rhcos-art.apps.s390x.psi.redhat.com/job/rhcos-art/job/rhcos-art-rhcos-$r/"
+      echo "https://jenkins-rhcos-art.apps.ocp-ppc.stage.psi.redhat.com/job/rhcos-art/job/rhcos-art-rhcos-$r/"
+      continue
+    fi
   done
+  echo "https://jenkins-rhcos.apps.ocp-virt.prod.psi.redhat.com/job/build/"
+  echo "https://jenkins-rhcos.apps.ocp-virt.prod.psi.redhat.com/job/build-arch/"
+  echo "https://jenkins-rhcos.apps.ocp-virt.prod.psi.redhat.com/job/release/"
+  # for console in "${rhcos_consoles[@]}"; do
+  #   echo "$console"
+  # done
 }
 
-repo_links() {
-  for repo in "${gh_repos[@]}"; do
-    echo "https://github.com/openshift/$repo/"{issues,pulls}/
-  done
+prs() {
+  printf "https://github.com/openshift/%s/pulls/\n" "${gh_repos[@]}"
+  echo "https://github.com/pulls?q=is%3Aopen+is%3Apr+label%3Amerge-post-promote+archived%3Afalse+"
 }
 
 jenkins() {
-  echo 'https://saml.buildvm.openshift.eng.bos.redhat.com:8888/view/OCP4%20Build%20Dashboard/'
-  echo 'https://saml.buildvm.openshift.eng.bos.redhat.com:8888/job/scheduled-builds/'
-  echo 'https://jenkins-art-jenkins.cloud.paas.psi.redhat.com/job/art-jenkins/'
+  echo 'https://saml.buildvm.hosts.prod.psi.bos.redhat.com:8888/view/OCP4%20Build%20Dashboard/'
+  echo 'https://saml.buildvm.hosts.prod.psi.bos.redhat.com:8888/job/scheduled-builds/'
 }
 
 backlog() {
   echo 'https://issues.redhat.com/secure/Dashboard.jspa?selectPageId=12331022'
-  echo 'https://issues.redhat.com/secure/RapidBoard.jspa?rapidView=5334&view=planning.nodetail'
 }
 
 triage_docs() {
-  echo 'https://mojo.redhat.com/docs/DOC-1207451#jive_content_id_Find_and_attach_CVEs_of_next_upcoming_ystream_releases'
+  echo 'http://saml.buildvm.hosts.prod.psi.bos.redhat.com:3000/d/aTqExXOMz/system-stats?orgId=1&refresh=30s'
+  echo 'https://source.redhat.com/groups/public/atomicopenshift/atomicopenshift_wiki/art_buildvmjenkins_security_patching_sop'
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  set -euo pipefail
+  script="$(readlink "$0" || echo "$0")"
+  source "${script%/*}/open-urls"
+
   main "$@"
 fi

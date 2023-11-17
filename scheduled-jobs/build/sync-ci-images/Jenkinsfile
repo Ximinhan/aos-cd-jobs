@@ -1,5 +1,4 @@
 // Monitor all branches of ocp-build-data
-properties([disableConcurrentBuilds()])
 
 @NonCPS
 def sortedVersions() {
@@ -7,42 +6,166 @@ def sortedVersions() {
 }
 
 node {
-
     checkout scm
     def buildlib = load("pipeline-scripts/buildlib.groovy")
     def commonlib = buildlib.commonlib
 
-    for ( String version : sortedVersions() ) {
-        group = "openshift-${version}"
-        echo "Checking group: ${group}"
+    properties([
+        disableConcurrentBuilds(),
+        disableResume(),
+        buildDiscarder(
+            logRotator(
+                artifactDaysToKeepStr: '20',
+                daysToKeepStr: '20'
+            )
+        ),
+        [
+            $class: 'ParametersDefinitionProperty',
+            parameterDefinitions: [
+                string(
+                    name: "ONLY_RELEASE",
+                    description: "Only run for one version; e.g. 4.7",
+                    defaultValue: "",
+                    trim: true,
+                ),
+                string(
+                    name: "ADD_LABELS",
+                    description: "Space delimited list of labels to add to existing/new PRs",
+                    defaultValue: "",
+                    trim: true,
+                ),
+                string(
+                    name: 'ASSEMBLY',
+                    description: 'The name of an assembly to rebase & build for. If assemblies are not enabled in group.yml, this parameter will be ignored',
+                    defaultValue: "stream",
+                    trim: true,
+                ),
+                [
+                    name: 'SKIP_WAITS',
+                    description: 'Skip sleeps',
+                    $class: 'BooleanParameterDefinition',
+                    defaultValue: false
+                ],
+                [
+                    name: 'FORCE_RUN',
+                    description: 'Run even if ocp-build-data appears unchanged',
+                    $class: 'BooleanParameterDefinition',
+                    defaultValue: false
+                ],
+                [
+                    name: 'UPDATE_IMAGES_ONLY_WHEN_MISSING',
+                    description: 'By default, if an image exists, this job does not update it (i.e. doozer runs with --only-if-missing). It would normally be updated by the ocp4 job when the API server successfully builds.',
+                    $class: 'BooleanParameterDefinition',
+                    defaultValue: true
+                ],
+                commonlib.doozerParam(),
+                commonlib.dryrunParam(),
+                commonlib.mockParam(),
+            ],
+        ]
+    ])
 
-        sh "rm -rf ${group}"
-        sh "git clone https://github.com/openshift/ocp-build-data --branch ${group} --single-branch --depth 1 ${group}"
-        dir(group) {
-            now_hash = sh(returnStdout: true, script: "git rev-parse HEAD").trim()
-        }
+    if (params.ONLY_RELEASE) {
+        for_versions = [ONLY_RELEASE]
+    } else {
+        for_versions = sortedVersions()
+    }
 
-        prev_dir_name = "${group}-prev"
-        dir(prev_dir_name) {  // if there was a previous, it should be here
-            prev_hash = sh(returnStdout: true, script: "git rev-parse HEAD || echo 0").trim()
-        }
+    if (params.FORCE_RUN) {
+        currentBuild.displayName += " (forced)"
+    }
 
-        echo "Current hash: ${now_hash} "
-        echo "Previous hash: ${prev_hash}"
+    buildlib.withAppCiAsArtPublish() {
+        sh "oc registry login"
 
-        if (now_hash != prev_hash) {
+        for ( String version : for_versions ) {
+            group = "openshift-${version}"
+            echo "Checking group: ${group}"
+            (major, minor) = commonlib.extractMajorMinorVersionNumbers(version)
+
+            sh "rm -rf ${group}"
+            sh "git clone https://github.com/openshift-eng/ocp-build-data --branch ${group} --single-branch --depth 1 ${group}"
+            dir(group) {
+                now_hash = sh(returnStdout: true, script: "git rev-parse HEAD").trim()
+            }
+
+            prev_dir_name = "${group}-prev"
+            dir(prev_dir_name) {  // if there was a previous, it should be here
+                prev_hash = sh(returnStdout: true, script: "git rev-parse HEAD || echo 0").trim()
+            }
+
+            // Ensure that the base image in ocp-private (base image for private release controller / private images)
+            // is kept in sync with public. ART automation updates the public periodically, but it needs to 
+            // also keep priv in sync.
+            sh "oc image mirror registry.ci.openshift.org/ocp/${version}:base registry.ci.openshift.org/ocp-private/${version}-priv:base"
+
+            echo "Current hash: ${now_hash} "
+            echo "Previous hash: ${prev_hash}"
+
+            if (now_hash == prev_hash && !params.FORCE_RUN) {
+                echo "NO changes detected in ocp-build-data group: ${group}"
+                continue
+            }
+
             echo "Changes detected in ocp-build-data group: ${group}"
+            currentBuild.displayName += " ${version}"
 
-            sh "KUBECONFIG=/home/jenkins/kubeconfigs/art-publish.kubeconfig doozer --group ${group} images:streams gen-buildconfigs -o ${group}.yaml --apply"
-            sh "KUBECONFIG=/home/jenkins/kubeconfigs/art-publish.kubeconfig oc registry login"
-            sh "KUBECONFIG=/home/jenkins/kubeconfigs/art-publish.kubeconfig doozer --group ${group} images:streams mirror --only-if-missing"
-            sh "KUBECONFIG=/home/jenkins/kubeconfigs/art-publish.kubeconfig doozer --group ${group} images:streams start-builds"
+            doozerWorking = "${env.WORKSPACE}/wd-${version}"
+            rc = 0
+            try {
+                sshagent(["openshift-bot"]) {
+                    sh "rm -rf ${doozerWorking}"
+                    buildlib.doozer("--working-dir ${doozerWorking} --group ${group} images:streams gen-buildconfigs -o ${group}.yaml --apply")
+                    mirror_args = ""
+                    if ( params.UPDATE_IMAGES_ONLY_WHEN_MISSING ) {
+                        mirror_args += "--only-if-missing "
+                    }
+                    buildlib.doozer("--working-dir ${doozerWorking} --group ${group} images:streams mirror ${mirror_args}")
+                    buildlib.doozer("--working-dir ${doozerWorking} --group ${group} images:streams start-builds")
 
-            sh "rm -rf ${prev_dir_name}"
-            sh "mv ${group} ${prev_dir_name}"
-        } else {
-            echo "NO changes detected in ocp-build-data group: ${group}"
+                    if (!params.SKIP_WAITS) {
+                        // Allow the builds to run for about 20 minutes
+                        sleep time: 20, unit: 'MINUTES'
+                    }
+                    // Print out status of builds for posterity
+                    buildlib.doozer("--working-dir ${doozerWorking} --group ${group} images:streams check-upstream")
+                    withCredentials([string(credentialsId: 'openshift-bot-token', variable: 'GITHUB_TOKEN'), string(credentialsId: 'jboss-jira-token', variable: 'JIRA_TOKEN')]) {
+                        if ( (major == 4 && minor >= 6) || major > 4 ) {
+                            other_args = '--add-label "bugzilla/valid-bug" --add-label "cherry-pick-approved" --add-label "backport-risk-assessed"'
+                            for ( label in params.ADD_LABELS.split() ) {
+                                other_args += " --add-label '${label}'"
+                            }
+                            // Only open PRs on >= 4.6 to leave well enough alone.
+                            rc = sh script:"${buildlib.DOOZER_BIN} --assembly stream --working-dir ${doozerWorking} --group ${group} images:streams prs open --interstitial 840 --add-auto-labels ${other_args} --github-access-token ${GITHUB_TOKEN}", returnStatus: true
+                            // rc=50 is used to indicate some errors raised during PR openings
+                            // rc=25 is used to indicate PR openings were skipped and to try again later.
+                            if ( rc != 0 && rc != 25 && rc != 50) {
+                                error("Error opening PRs for ${group}: ${rc}")
+                            }
+                        }
+                    }
+                }
+            } finally {
+                commonlib.safeArchiveArtifacts(["wd-${version}/*.log"])
+                sh "rm -rf ${doozerWorking}"
+            }
+
+            if ( rc == 25 ) {
+                currentBuild.result = "UNSTABLE"
+                currentBuild.displayName += "-Partial"
+                echo "Some PRs were skipped because parent PRs have not merged yet: ${version}."
+                // Do not "mv ${group} ${prev_dir_name}" because we are not done
+            } else if ( rc == 50 ) {
+                currentBuild.result = "FAILURE"
+                currentBuild.displayName += "-Completed with errors"
+                echo "Some errors were raised during PR openings; please check the logs for details"
+            } else {
+                sh "rm -rf ${prev_dir_name}"
+                sh "mv ${group} ${prev_dir_name}"
+            }
         }
     }
 
+    // Do not clean blindly. We need information to persist across runs in order to detect change in ocp-build-data.
+    // buildlib.cleanWorkspace()
 }

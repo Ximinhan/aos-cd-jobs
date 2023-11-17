@@ -1,10 +1,37 @@
+node {
+    checkout scm
+    buildlib = load("pipeline-scripts/buildlib.groovy")
+    commonlib = buildlib.commonlib
+    slacklib = commonlib.slacklib
 
-properties( [
-    buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '', numToKeepStr: '100')),
-    disableConcurrentBuilds(),
-] )
+    properties( [
+        buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '100', daysToKeepStr: '', numToKeepStr: '100')),
+        disableConcurrentBuilds(),
+        disableResume(),
+    ] )
 
-b = build job: '../aos-cd-builds/build%2Focp4_scan', propagate: false
+    def versionJobs = [:]
+    for ( version in commonlib.ocp4Versions ) {
+        def cv = "${version}" // make sure we use a locally scoped variable
 
-currentBuild.description = "${b.displayName} - ${b.result}\n"
-currentBuild.result = b.result
+        // Skip the build if already locked
+        activityLockName = "github-activity-lock-${cv}"
+        if (!commonlib.canLock(activityLockName)) {
+            echo "Looks like there is another build ongoing for ${cv} -- skipping for this run"
+            continue
+        }
+
+        // Trigger ocp4-scan build for ${version}
+        versionJobs["scan-v${version}"] = {
+            try {
+                timeout(activity: true, time: 30, unit: 'MINUTES') {
+                    build job: '../aos-cd-builds/build%2Focp4_scan', parameters: [string(name: 'VERSION', value: "${cv}")], propagate: false
+                }
+            } catch (te) {
+                slacklib.to(cv).failure("Error running ocp_scan", te)
+            }
+        }
+    }
+
+    parallel versionJobs
+}

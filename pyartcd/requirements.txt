@@ -1,0 +1,21 @@
+aiohttp[speedups] >= 3.6
+aiofiles
+aioredlock >= 0.7.3
+click
+contextvars
+errata_tool
+errata-tool @ git+https://github.com/Ximinhan/errata-tool@5efa05bfa2755af93fc24f17cd5a087e7a96d700 # https://github.com/red-hat-storage/errata-tool/pull/244
+ghapi
+jenkinsapi >= 0.3.13  # https://github.com/pycontribs/jenkinsapi/issues/833
+Jinja2
+jira >= 3.4.1  # https://github.com/pycontribs/jira/issues/1486
+openshift-client
+pygit2 == 1.10.1 # https://github.com/libgit2/pygit2/issues/1176
+rh-elliott
+rh-doozer
+ruamel.yaml
+semver >= 2.13.0
+slack_sdk >= 3.13.0
+tenacity
+aiohttp_retry
+toml

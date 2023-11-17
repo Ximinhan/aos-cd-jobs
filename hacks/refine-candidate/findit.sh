@@ -1,7 +1,7 @@
 #!/bin/bash
 #set -o xtrace
 
-TAG="{$TAG:-${1:-}}"
+TAG="${TAG:-${1:-}}"
 
 if [[ -z "$TAG" ]]; then
     echo "Run only after running download-logs.sh. Specify the same tag to find RPMs being used by container builds."
@@ -45,7 +45,7 @@ for build in $(cat rpm-builds); do
                 fi
 
                 bases="$base $bases"
-                grep "Installing :.*$N" kojilogs/*/*.log  > /dev/null
+                grep "Installing *:.*$N" kojilogs/*/*.log  > /dev/null
                 if [[ "$?" == "0" ]]; then
                         found=1
                         break

@@ -47,7 +47,8 @@ properties(
                 ],
             ]
         ],
-        disableConcurrentBuilds()
+        disableConcurrentBuilds(),
+        disableResume(),
     ]
 )
 
@@ -71,27 +72,11 @@ node(TARGET_NODE) {
         echo "END: test_cmp_version()"
     }
 
-    stage("test eq_version") {
-        echo "BEGIN: test_eq_version()"
-        testlib.test_eq_version()
-        echo "END: test_eq_version()"
-    }
-
     stage("test sort_versions") {
         echo "BEGIN: test_sort_versions()"
         testlib.test_sort_versions()
         echo "END: test_sort_versions()"
     }
 
-    stage("test auto-mode resolution") {
-        echo "BEGIN: test_auto_mode()"
-        testlib.test_auto_mode()
-        echo "END: test_auto_mode()"
-    }
-
-    stage("test new_version") {
-        echo "BEGIN: test_new_version()"
-        testlib.test_new_version()
-        echo "END: test_new_version()"
-    }
+    buildlib.cleanWorkspace()
 }

@@ -69,7 +69,7 @@ specify something different (but it would still need to end in `.p?`).
 ### DOOZER\_DATA\_PATH
 
 This is possibly the most useful parameter for this job. It specifies the fork
-of [ocp-build-data](https://github.com/openshift/ocp-build-data) to be used as
+of [ocp-build-data](https://github.com/openshift-eng/ocp-build-data) to be used as
 configuration for this build.
 
 Override this with your fork when you want to try out some configuration
@@ -111,9 +111,8 @@ built in between building RPMs (if any) and images (if any).
 If this run is building RPMs, this parameter is ignored and new
 plashets/compose are always built to include them.
 
-> :warning: Note that for 3.11 this job cannot create a signed compose (perhaps
-> it should be changed to invoke `signed-compose` when the `SIGNED` flag is set
-> along with this one). For now `signed-compose` should be run separately.
+A slack notification is sent to the respective release channel in either case,
+that is if this parameter is set true or if this run is building RPMs.
 
 ### IMAGES
 
@@ -134,76 +133,24 @@ should change to using the same parameters at some point, just for consistency.
 This specifies the mode to use with doozer to update image dist-gits:
 * `rebase`: this default is almost always what you should use. It rebases the
   code in the dist-git with the current source code.
-* `update-dockerfile`: just update the Dockerfile with new metadata, not new
-  source. This is useful for rebuilding 3.11 images with signed RPMs without
-  changing source contents at all, but in 4.y should almost never be used
-  (see below).
 * `nothing`: change nothing, just build with current dist-git contents. This will
   not work as desired if the contents have already built successfully. This is
   only useful to retry a build that failed for some reason - bugs, system
   failures, buildroot changes, and such. There is not usually much need for this
   option.
 
-> :warning: In 4.y, when rebuilding an OLM operator or operand, a rebase is
-> required in order for the operator CSV references to work correctly
-> (otherwise they are likely to point at images that are not published). Other
-> images can be built with `update-dockerfile` safely in the case where you
-> don't want to pull in newer changes; but this is a rare use case, and you
-> don't want to get sloppy and include an operator/operand by accident.
+### SCRATCH
 
-### SIGNED
+Build "scratch" brew builds; code is pushed to dist-git and built in brew but
+the builds do not get an NVR, can't be tagged, and can't interfere with
+shipping builds. This is intended to be using only for testing builds.
 
-Nominally this parameter specifies whether to build using a signed or unsigned
-RPM compose, defaulting to signed.
+:warning: Nothing can build on a scratch build (there is no registry tag), so
+scratch builds of a parent and descendant are not possible. The descendant
+build will fail. This can only be used for targeted builds, not a mass rebuild.
+:warning:
 
-This has no effect in 4.y; whatever is in the plashets is used, whether signed or unsigned.
-
-In 3.11 this does affect whether the build uses the signed or unsigned compose
-(until we get plashets there too someday), and defaults to signed since that is
-one of the main use cases for this job (rebuilding a 3.11 release with signed
-contents). This means of course that you need to use the `signed-compose` job
-to create a signed compose first.
-
-### SWEEP\_BUGS
-
-When true, run the `sweep` job to sweep and attach `MODIFIED` bugs into the
-default advisories for the build version (_NOT_ those specified by parameters
-below).
-
-> :warning: Note that this sweeps _all_ bugs, regardless of whether any builds
-> include related changes. Usually this is not desired, but may be useful if
-> you know all bugs will be ready to be swept at the end of the build.
-
-### IMAGE\_ADVISORY\_ID
-
-(Optional) If specified, attach _all_ latest container images to this advisory
-when the job completes. Specify `default` to use the default value from
-`ocp-build-data`.
-
-In 3.11 this can be useful when doing the signed build for a release, to sweep
-all the containers images when built.
-
-In 4.y builds there is little use for this. It is not scoped to just the images
-that were built in this run - it will attempt to attach _all_ latest images to
-a single advisory (not split by payload/extras). This is basically only useful
-for looking at CHI grades before continuing.
-
-> :warning: This attempts to attach all builds to the same advisory, but if
-> builds are already attached elsewhere, they will not be re-attached.
-
-### RPM\_ADVISORY\_ID
-
-(Optional) If specified, attach _all_ latest RPM package builds to this
-advisory when the job completes. Specify `default` to use the default value
-from `ocp-build-data`.
-
-There is little use for this.
-* In 3.11 you will usually want to sweep RPMs with the `signed-compose` job.
-* In 4.y RPM builds have usually already been swept, but you may want to use this
-  if the job built new ones.
-
-> :warning: This attempts to attach all builds to the same advisory, but if
-> builds are already attached elsewhere, they will not be re-attached.
+After a scratch build, images will not be synced.
 
 ### MAIL\_LIST\_SUCCESS
 

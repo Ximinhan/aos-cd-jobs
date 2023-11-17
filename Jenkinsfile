@@ -3,6 +3,7 @@ node {
 
     def buildlib = load("pipeline-scripts/buildlib.groovy")
     def commonlib = buildlib.commonlib
+    def slacklib = commonlib.slacklib
     commonlib.describeJob("custom", """
         <h2>Run component builds in ways other jobs can't</h2>
         <b>Timing</b>: This is only ever run by humans, as needed. No job should be calling it.
@@ -13,7 +14,7 @@ node {
         It is also still necessary for building OCP 3.11 releases using signed
         RPMs in containers.
 
-        For more details see the <a href="https://github.com/openshift/aos-cd-jobs/blob/master/jobs/build/custom/README.md" target="_blank">README</a>
+        For more details see the <a href="https://github.com/openshift-eng/aos-cd-jobs/blob/master/jobs/build/custom/README.md" target="_blank">README</a>
     """)
 
 
@@ -31,6 +32,7 @@ node {
                 $class: 'ParametersDefinitionProperty',
                 parameterDefinitions: [
                     commonlib.ocpVersionParam('BUILD_VERSION'),
+                    commonlib.doozerParam(),
                     booleanParam(
                         name: 'IGNORE_LOCKS',
                         description: 'Do not wait for other builds in this version to complete (use only if you know they will not conflict)',
@@ -47,9 +49,21 @@ node {
                         trim: true,
                     ),
                     string(
+                        name: 'ASSEMBLY',
+                        description: 'The name of an assembly to rebase & build for. If assemblies are not enabled in group.yml, this parameter will be ignored',
+                        defaultValue: "test",
+                        trim: true,
+                    ),
+                    string(
                         name: 'DOOZER_DATA_PATH',
                         description: 'ocp-build-data fork to use (e.g. test customizations on your own fork)',
-                        defaultValue: "https://github.com/openshift/ocp-build-data",
+                        defaultValue: "https://github.com/openshift-eng/ocp-build-data",
+                        trim: true,
+                    ),
+                    string(
+                        name: 'DOOZER_DATA_GITREF',
+                        description: '(Optional) Doozer data path git [branch / tag / sha] to use',
+                        defaultValue: "",
                         trim: true,
                     ),
                     string(
@@ -59,8 +73,8 @@ node {
                         trim: true,
                     ),
                     booleanParam(
-                        name: 'COMPOSE',
-                        description: 'Build plashets/compose (always true if building RPMs)',
+                        name: 'UPDATE_REPOS',
+                        description: 'Build plashets (always true if building RPMs or images for non-stream assembly)',
                         defaultValue: false,
                     ),
                     string(
@@ -75,28 +89,13 @@ node {
                     ),
                     choice(
                         name: 'IMAGE_MODE',
-                        description: 'How to update image dist-gits: with a source rebase, just dockerfile updates, or not at all (no version/release update)',
-                        choices: ['rebase', 'update-dockerfile', 'nothing'].join('\n'),
+                        description: 'How to update image dist-gits: with a source rebase, or not at all (re-run as-is)',
+                        choices: ['rebase', 'nothing'].join('\n'),
                     ),
                     booleanParam(
-                        name: 'SIGNED',
-                        description: '(3.11) Build images against signed RPMs?',
-                        defaultValue: true,
-                    ),
-                    booleanParam(
-                        name: 'SWEEP_BUGS',
-                        description: 'Sweep and attach bugs to advisories',
+                        name: 'SCRATCH',
+                        description: 'Run scratch builds (only unrelated images, no children)',
                         defaultValue: false,
-                    ),
-                    string(
-                        name: 'IMAGE_ADVISORY_ID',
-                        description: 'Advisory id for attaching new images if desired. Enter "default" to use current advisory from ocp-build-data',
-                        trim: true
-                    ),
-                    string(
-                        name: 'RPM_ADVISORY_ID',
-                        description: 'Advisory id for attaching new rpms if desired. Enter "default" to use current advisory from ocp-build-data',
-                        trim: true,
                     ),
                     commonlib.suppressEmailParam(),
                     string(
@@ -118,29 +117,40 @@ node {
             ],
         ]
     )   // Please update README.md if modifying parameter names or semantics
-    buildlib.initialize()
-
-    GITHUB_BASE = "git@github.com:openshift" // buildlib uses this global var
+    commonlib.checkMock()
+    buildlib.initialize(false, params.BUILD_VERSION == "3.11")
 
     // doozer_working must be in WORKSPACE in order to have artifacts archived
     def doozer_working = "${env.WORKSPACE}/doozer_working"
     buildlib.cleanWorkdir(doozer_working)
 
-    def doozer_data_path = params.DOOZER_DATA_PATH
-    def majorVersion = params.BUILD_VERSION.split('\\.')[0]
-    def minorVersion = params.BUILD_VERSION.split('\\.')[1]
-    def doozerOpts = "--working-dir ${doozer_working} --data-path ${doozer_data_path} --group 'openshift-${params.BUILD_VERSION}' "
+    def (majorVersion, minorVersion) = commonlib.extractMajorMinorVersionNumbers(params.BUILD_VERSION)
+    def groupParam = "openshift-${params.BUILD_VERSION}"
+    def doozer_data_gitref = params.DOOZER_DATA_GITREF
+    if (doozer_data_gitref) {
+        groupParam += "@${params.DOOZER_DATA_GITREF}"
+    }
+    def doozerOpts = "--working-dir ${doozer_working} --data-path ${params.DOOZER_DATA_PATH} --group '${groupParam}' "
     def version = params.BUILD_VERSION
     def release = "?"
     if (params.IMAGE_MODE != "nothing") {
-        version = buildlib.determineBuildVersion(params.BUILD_VERSION, buildlib.getGroupBranch(doozerOpts), params.VERSION)
+        version = params.BUILD_VERSION.trim()
         release = params.RELEASE.trim() ?: buildlib.defaultReleaseFor(params.BUILD_VERSION)
     }
-    def repo_type = params.SIGNED ? "signed" : "unsigned"
+    // If any arch is ready for GA, use signed repos for all (plashets will sign everything).
+    def out = buildlib.doozer("--group=openshift-${params.BUILD_VERSION} config:read-group --yaml release_state",
+                                [capture: true]).trim()
+    def archReleaseStates = readYaml(text: out)
+    echo "arch release state for ${params.BUILD_VERSION}: ${archReleaseStates}"
+    def repo_type = archReleaseStates['release'] ? 'signed' : 'unsigned'
+
     def images = commonlib.cleanCommaList(params.IMAGES)
     def exclude_images = commonlib.cleanCommaList(params.EXCLUDE_IMAGES)
     def rpms = commonlib.cleanCommaList(params.RPMS)
 
+    if (params.ASSEMBLY && params.ASSEMBLY != 'stream' && buildlib.doozer("${doozerOpts} config:read-group --default=False assemblies.enabled", [capture: true]).trim() != 'True') {
+        error("ASSEMBLY cannot be set to '${params.ASSEMBLY}' because assemblies are not enabled in ocp-build-data.")
+    }
 
     currentBuild.displayName = "#${currentBuild.number} - ${version}-${release}"
 
@@ -150,160 +160,159 @@ node {
             currentBuild.description = ""
 
             stage("rpm builds") {
-                if (rpms.toUpperCase() != "NONE") {
-                    currentBuild.displayName += rpms.contains(",") ? " [RPMs]" : " [${rpms} RPM]"
-                    currentBuild.description = "building RPM(s): ${rpms}\n"
-                    command = doozerOpts
-                    if (rpms) { command += "-r '${rpms}' " }
-                    command += "rpms:build --version ${version} --release '${release}' "
-
-                    def buildRpms = { ->
-                        buildlib.doozer command
-                        def rpmList = rpms.split(",")
-                        // given this may run without locks, don't blindly rebuild for el8 unless building for el7
-                        if (rpmList.contains("openshift") || rpmList.contains("openshift-clients") || !rpmList) {
-                            build(
-                                job: "build%2Fel8-rebuilds",
-                                propagate: true,
-                                parameters: [
-                                    string(name: "BUILD_VERSION", value: params.BUILD_VERSION),
-                                    booleanParam(name: "MOCK", value: false),
-                                ],
-                            )
-                        }
-                    }
-                    params.IGNORE_LOCKS ?  buildRpms() : lock("github-activity-lock-${params.BUILD_VERSION}") { buildRpms() }
+                if (rpms.toUpperCase() == "NONE") {
+                    return
                 }
+                currentBuild.displayName += rpms.contains(",") ? " [RPMs]" : " [${rpms} RPM]"
+                currentBuild.description = "building RPM(s): ${rpms}\n"
+
+                sh "rm -rf ./artcd_working && mkdir -p ./artcd_working"
+                def cmd = [
+                    "artcd",
+                    "-v",
+                    "--working-dir=./artcd_working",
+                    "--config=./config/artcd.toml",
+                    "custom",
+                    "build-rpms",
+                    "--version=${version}-${release}",
+                    "--assembly=${params.ASSEMBLY}",
+                ]
+                if (rpms) {
+                    cmd << "--rpms=${rpms}"
+                }
+                cmd << "--data-path=${params.DOOZER_DATA_PATH}"
+                if (params.DOOZER_DATA_GITREF) {
+                    cmd << "--data-gitref=${params.DOOZER_DATA_GITREF}"
+                }
+                if (params.SCRATCH) {
+                    cmd << "--scratch"
+                }
+
+                params.IGNORE_LOCKS ?  sh(script: cmd.join(' ')) : lock("github-activity-lock-${params.BUILD_VERSION}") { sh(script: cmd.join(' ')) }
             }
 
             stage("repo: ose 'building'") {
-                if (params.COMPOSE || rpms.toUpperCase() != "NONE") {
-                    lock("compose-lock-${params.BUILD_VERSION}") {  // note: respect puddle lock regardless of IGNORE_LOCKS
-                        if ("${majorVersion}" == "3") {
-                            echo 'Building 3.x puddle'
-                            aosCdJobsCommitSha = commonlib.shell(
-                                    returnStdout: true,
-                                    script: "git rev-parse HEAD",
-                            ).trim()
-                            puddleConfBase = "https://raw.githubusercontent.com/openshift/aos-cd-jobs/${aosCdJobsCommitSha}/build-scripts/puddle-conf"
-                            puddleConf = "${puddleConfBase}/atomic_openshift-${params.BUILD_VERSION}.conf"
-                            buildlib.build_puddle(
-                                    puddleConf,    // The puddle configuration file to use
-                                    null, // openshifthosted key
-                                    "-b",   // do not fail if we are missing dependencies
-                                    "-d",   // print debug information
-                                    "-n",   // do not send an email for this puddle
-                                    "-s",   // do not create a "latest" link since this puddle is for building images
-                                    "--label=building"   // create a symlink named "building" for the puddle
-                            )
-                        } else {
-                            echo 'Building 4.x plashet'
-                            // For 4.x, use plashets
-                            buildlib.buildBuildingPlashet(version, release, 8, true)  // build el8 embargoed plashet
-                            buildlib.buildBuildingPlashet(version, release, 7, true)  // build el7 embargoed plashet
-                            buildlib.buildBuildingPlashet(version, release, 8, false)  // build el8 unembargoed plashet
-                            buildlib.buildBuildingPlashet(version, release, 7, false)  // build el7 unembargoed plashet
-                        }
+                if (params.UPDATE_REPOS || (images.toUpperCase() != "NONE" && params.ASSEMBLY && params.ASSEMBLY != 'stream') || rpms.toUpperCase() != "NONE") {
+                    sh "rm -rf ./artcd_working && mkdir -p ./artcd_working"
+                    def cmd = [
+                        "artcd",
+                        "-v",
+                        "--working-dir=./artcd_working",
+                        "--config=./config/artcd.toml",
+                        "custom",
+                        "update-repos",
+                        "--version=${version}-${release}",
+                        "--assembly=${params.ASSEMBLY}",
+                    ]
+                    if (params.DOOZER_DATA_PATH) {
+                        cmd << "--data-path=${params.DOOZER_DATA_PATH}"
+                    }
+                    if (params.DOOZER_DATA_GITREF) {
+                        cmd << "--data-gitref=${params.DOOZER_DATA_GITREF}"
+                    }
+
+                    withCredentials([
+                            string(credentialsId: 'art-bot-slack-token', variable: 'SLACK_BOT_TOKEN'),
+                            string(credentialsId: 'redis-server-password', variable: 'REDIS_SERVER_PASSWORD'),
+                            string(credentialsId: 'redis-host', variable: 'REDIS_HOST'),
+                            string(credentialsId: 'redis-port', variable: 'REDIS_PORT')
+                        ]) {
+                        sh(script: cmd.join(' '))
                     }
                 }
             }
 
-            // determine which images, if any, should be built, and how to tell doozer that
-            include_exclude = ""
-            any_images_to_build = true
-            if (exclude_images) {
-                include_exclude = "-x ${exclude_images}"
-                currentBuild.displayName += " [images]"
-            } else if (images.toUpperCase() == "NONE") {
-                any_images_to_build = false
-            } else if (images) {
-                include_exclude = "-i ${images}"
-                currentBuild.displayName += images.contains(",") ? " [images]" : " [${images} image]"
-            }
-
-            stage("update dist-git") {
-                if (!any_images_to_build) { return }
-                if (params.IMAGE_MODE == "nothing") { return }
-
-                currentBuild.description += "building image(s): ${include_exclude ?: 'all'}"
-                command = doozerOpts
-                command += "--latest-parent-version ${include_exclude} "
-                command += "images:${params.IMAGE_MODE} --version v${version} --release '${release}' "
-                command += "--repo-type ${repo_type} "
-                command += "--message 'Updating Dockerfile version and release ${version}-${release}' --push "
-                if (params.IGNORE_LOCKS) {
-                     buildlib.doozer command
-                } else {
-                    lock("github-activity-lock-${params.BUILD_VERSION}") { buildlib.doozer command }
+            stage('build images') {
+                if (exclude_images) {
+                    currentBuild.displayName += " [images]"
+                    currentBuild.description += "building all images except: ${exclude_images}"
                 }
-            }
-
-            stage("build images") {
-                if (!any_images_to_build) { return }
-                base_command = "${doozerOpts} ${include_exclude} --profile ${repo_type}"
-                command = "images:build --push-to-defaults"
-                if (majorVersion == "4") {
-                    config_dir = "${env.WORKSPACE}/qe_quay_config"
-                    buildlib.registry_quay_qe_login(config_dir)
-                    base_command += " --registry-config-dir=${config_dir}"
-                    command += " --filter-by-os='.*'"
+                else if (images == "") {
+                    currentBuild.displayName += " [images]"
+                    currentBuild.description += "building all images"
                 }
-                command = "${base_command} ${command}"
-                try {
-                    buildlib.doozer command
-                } catch (err) {
-                    def record_log = buildlib.parse_record_log(doozer_working)
-                    def failed_map = buildlib.get_failed_builds(record_log, true)
-                    if (failed_map) {
-                        def r = buildlib.determine_build_failure_ratio(record_log)
-                        if (r.total > 10 && r.ratio > 0.25 || r.total > 1 && r.failed == r.total) {
-                            echo "${r.failed} of ${r.total} image builds failed; probably not the owners' fault, will not spam"
-                        } else {
-                            buildlib.mail_build_failure_owners(failed_map, "aos-team-art@redhat.com", params.MAIL_LIST_FAILURE)
+                else if (images != "NONE") {
+                    currentBuild.displayName += images.contains(",") ? " [images]" : " [${images} image]"
+                    currentBuild.description += "building image(s): ${images}"
+                }
+
+                sh "rm -rf ./artcd_working && mkdir -p ./artcd_working"
+                cmd = [
+                        "artcd",
+                        "-v",
+                        "--working-dir=./artcd_working",
+                        "--config=./config/artcd.toml",
+                        "custom",
+                        "build-images",
+                        "--version=${version}-${release}",
+                        "--assembly=${params.ASSEMBLY}",
+                ]
+                if (params.DOOZER_DATA_PATH) {
+                    cmd << "--data-path=${params.DOOZER_DATA_PATH}"
+                }
+                if (params.DOOZER_DATA_GITREF) {
+                    cmd << "--data-gitref=${params.DOOZER_DATA_GITREF}"
+                }
+                cmd << "--images=${images}"
+                if (exclude_images) {
+                    cmd << "--exclude=${exclude_images}"
+                }
+                cmd << "--image-mode=${params.IMAGE_MODE}"
+                if (params.SCRATCH) {
+                    cmd << "--scratch"
+                }
+
+                withCredentials([string(credentialsId: 'gitlab-ocp-release-schedule-schedule', variable: 'GITLAB_TOKEN')]) {
+                    try {
+                        params.IGNORE_LOCKS ?  sh(script: cmd.join(' ')) : lock("github-activity-lock-${params.BUILD_VERSION}") { sh(script: cmd.join(' ')) }
+                    } catch (err) {
+                        def record_log = buildlib.parse_record_log(doozer_working)
+                        def failed_map = buildlib.get_failed_builds(record_log, true)
+                        if (failed_map) {
+                            def r = buildlib.determine_build_failure_ratio(record_log)
+                            if (r.total > 10 && r.ratio > 0.25 || r.total > 1 && r.failed == r.total) {
+                                echo "${r.failed} of ${r.total} image builds failed; probably not the owners' fault, will not spam"
+                            } else {
+                                buildlib.mail_build_failure_owners(failed_map, "aos-team-art@redhat.com", params.MAIL_LIST_FAILURE)
+                            }
                         }
+                        throw err  // build is considered failed if anything failed
                     }
-                    throw err  // build is considered failed if anything failed
                 }
             }
 
             stage('sync images') {
-                if (majorVersion == "4") {
-                    buildlib.sync_images(
-                        majorVersion,
-                        minorVersion,
-                        "aos-team-art@redhat.com", // "reply to"
-                        currentBuild.number
+                if (params.SCRATCH || (!exclude_images && images.toUpperCase() == "NONE")) { return }  // no point
+                
+                sh "rm -rf ./artcd_working && mkdir -p ./artcd_working"
+
+                cmd = [
+                        "artcd",
+                        "-v",
+                        "--working-dir=./artcd_working",
+                        "--config=./config/artcd.toml",
+                        "custom",
+                        "sync-images",
+                        "--version=${version}",
+                        "--assembly=${params.ASSEMBLY}",
+                        "--data-path=${params.DOOZER_DATA_PATH}",
+                        "--data-gitref=${params.DOOZER_DATA_GITREF}"
+                ]
+
+                try {
+                    withCredentials([string(credentialsId: 'jenkins-service-account', variable: 'JENKINS_SERVICE_ACCOUNT'), string(credentialsId: 'jenkins-service-account-token', variable: 'JENKINS_SERVICE_ACCOUNT_TOKEN')]) {
+                        withEnv(["BUILD_URL=${BUILD_URL}", "JOB_NAME=${JOB_NAME}"]) {
+                            sh(script: cmd.join(' '))
+                        }
+                    }
+                } catch(err) {
+                    commonlib.email(
+                        replyTo: params.MAIL_LIST_FAILURE,
+                        to: "aos-art-automation+failed-image-sync@redhat.com",
+                        from: "aos-art-automation@redhat.com",
+                        subject: "Problem syncing images after ${currentBuild.displayName}",
+                        body: "Jenkins console: ${commonlib.buildURL('console')}",
                     )
-                }
-            }
-
-            stage ('Attach Images') {
-                if (params.IMAGE_ADVISORY_ID != "") {
-                    def attach = params.IMAGE_ADVISORY_ID == "default" ? "--use-default-advisory image" : "--attach ${params.IMAGE_ADVISORY_ID}"
-                    buildlib.elliott """
-                    --data-path ${doozer_data_path}
-                    --group 'openshift-${majorVersion}.${minorVersion}'
-                    find-builds
-                    --kind image
-                    ${attach}
-                    """
-                }
-
-                if (params.RPM_ADVISORY_ID != "") {
-                    def attach = params.RPM_ADVISORY_ID == "default" ? "--use-default-advisory rpm" : "--attach ${params.RPM_ADVISORY_ID}"
-                    buildlib.elliott """
-                    --data-path ${doozer_data_path}
-                    --group 'openshift-${majorVersion}.${minorVersion}'
-                    find-builds
-                    --kind rpm
-                    ${attach}
-                    """
-                }
-            }
-
-            stage('sweep') {
-                if (params.SWEEP_BUGS) {
-                    buildlib.sweep(params.BUILD_VERSION, false)
                 }
             }
 
@@ -340,5 +349,6 @@ Job console: ${commonlib.buildURL('console')}
                 "doozer_working/brew-logs/**",
             ])
         buildlib.cleanWorkdir(doozer_working)
+        buildlib.cleanWorkspace()
     }
 }

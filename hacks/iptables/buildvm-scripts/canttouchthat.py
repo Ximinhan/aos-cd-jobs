@@ -1,7 +1,4 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
-from __future__ import print_function
+#!/usr/bin/env python3
 
 import click
 import subprocess
@@ -9,6 +6,7 @@ import requests
 import traceback
 import xml.etree.cElementTree as ET
 from io import BytesIO
+import shutil
 
 LOG_PREFIX_ALL_CONNECTION = "New Connection: "
 LOG_PREFIX_DISALLOWED_CONNECTION = "Disallowed Connection: "
@@ -17,6 +15,12 @@ DIRECT_XML_PATH = '/etc/firewalld/direct.xml'
 
 def reload_permanent_rules():
     subprocess.check_output(['firewall-cmd', '--reload'])
+    if shutil.which('podman-network-reload'):
+        # Rootful Podman relies on iptables rules in order to provide network connectivity.
+        # If the iptables rules are deleted, this happens for example with firewall-cmd --reload,
+        # the container loses network connectivity.
+        # This command restores the network connectivity.
+        subprocess.check_output(['podman-network-reload', '--all'])
 
 
 def get_direct_rules(space):
@@ -65,11 +69,15 @@ def add_logging_rule(direct_root, priority, space, prefix):
 
 def add_drop_rule(direct_root, priority, space):
     # e.g.   <rule priority="100" table="filter" ipv="ipv4" chain="OUTPUT">'!' -o lo -j REJECT --reject-with icmp-host-prohibited</rule>
+    if space == 'ipv6':
+        rule = 'icmp6-adm-prohibited'
+    else:
+        rule = 'icmp-host-prohibited'
     ET.SubElement(direct_root, 'rule',
                   priority=str(priority),
                   table='filter',
                   ipv=space,
-                  chain='OUTPUT').text = "'!' -o lo -j REJECT --reject-with icmp-host-prohibited"
+                  chain='OUTPUT').text = f"'!' -o lo -j REJECT --reject-with {rule}"
 
 
 @click.command(short_help="Manage OUTPUT rules using firewalld")
@@ -155,6 +163,16 @@ Running with `--clean` will remove all installed rules.
         print('Error fetching AWS IP addresses. You may need to run --clean mode and then try this command again.')
         exit(1)
 
+    # Allow Fastly CDN service IP ranges
+    try:
+        fastly_cidrs = get_fastly_ip_ranges()
+        print(f'Adding {len(fastly_cidrs)} Fastly IP ranges')
+        cidr_set |= fastly_cidrs
+    except:
+        traceback.print_exc()
+        print('Error fetching Fastly IP addresses. You may need to run --clean mode and then try this command again.')
+        exit(1)
+
     # For each input file specified, add cidrs to the set
     for file in output_networks:
         with open(file, 'r') as f:
@@ -216,6 +234,11 @@ Running with `--clean` will remove all installed rules.
         print('Would have written the following direct rules to {}'.format(DIRECT_XML_PATH))
         print_direct_rules(direct)
 
+def get_fastly_ip_ranges():
+    response = requests.get("https://api.fastly.com/public-ip-list")
+    response.raise_for_status()
+    ip_ranges = response.json()
+    return set(ip_ranges.get("addresses", []) + ip_ranges.get("ipv6_addresses", []))
 
 if __name__ == '__main__':
     main()
