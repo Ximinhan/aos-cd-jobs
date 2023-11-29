@@ -44,6 +44,12 @@ timeout(activity: true, time: 60, unit: 'MINUTES') {
                             trim: true,
                         ),
                         string(
+                        name: 'DOOZER_DATA_PATH',
+                        description: 'ocp-build-data fork to use (e.g. test customizations on your own fork)',
+                        defaultValue: "https://github.com/openshift-eng/ocp-build-data",
+                        trim: true,
+                        ),
+                        string(
                             name: 'MAIL_LIST_FAILURE',
                             description: 'Failure Mailing List',
                             defaultValue: [
@@ -85,6 +91,9 @@ timeout(activity: true, time: 60, unit: 'MINUTES') {
                     "--working-dir=${artcd_working}",
                     "--config=./config/artcd.toml",
                 ]
+                if (params.DOOZER_DATA_PATH) {
+                    cmd << "--data-path=${params.DOOZER_DATA_PATH}"
+                }
                 if (params.DRY_RUN) {
                     cmd << "--dry-run"
                 }
