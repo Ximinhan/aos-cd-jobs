@@ -91,9 +91,7 @@ timeout(activity: true, time: 60, unit: 'MINUTES') {
                     "--working-dir=${artcd_working}",
                     "--config=./config/artcd.toml",
                 ]
-                if (params.DOOZER_DATA_PATH) {
-                    cmd << "--data-path=${params.DOOZER_DATA_PATH}"
-                }
+                
                 if (params.DRY_RUN) {
                     cmd << "--dry-run"
                 }
@@ -101,6 +99,9 @@ timeout(activity: true, time: 60, unit: 'MINUTES') {
                     "ocp4-scan",
                     "--version=${params.VERSION}"
                 ]
+                if (params.DOOZER_DATA_PATH) {
+                    cmd << "--data-path=${params.DOOZER_DATA_PATH}"
+                }
 
                 // Run pipeline
                 buildlib.withAppCiAsArtPublish() {
