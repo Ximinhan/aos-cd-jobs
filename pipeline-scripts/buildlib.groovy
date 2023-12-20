@@ -159,7 +159,7 @@ def setup_venv() {
         }
     }
 
-    commonlib.shell(script: "rm -rf art-tools;  git clone -b ${branch_name} https://github.com/${owner}/art-tools.git")
+    commonlib.shell(script: "rm -rf art-tools;  git clone -b art-8481-2 https://github.com/Ximinhan/art-tools.git")
     commonlib.shell(script: "cd art-tools && ./install.sh")
 
     out = sh(
