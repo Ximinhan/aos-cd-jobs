@@ -27,7 +27,7 @@ mkdir "$VERSION"
 
 for rpm in *.rpm; do
   arch="$(awk -F'[.]' '{a = $(NF-1); print a=="x86_64" ? "amd64" : a=="aarch64" ? "arm64" : a}' <<<"$rpm")"
-  rpm2cpio "${rpm}" | cpio -idm --quiet ./usr/bin/coreos-installer
+  rpm2cpio "${rpm}" | zstd -d | cpio -idm --quiet ./usr/bin/coreos-installer
   mv usr/bin/coreos-installer "$VERSION/coreos-installer_$arch"
 done
 
