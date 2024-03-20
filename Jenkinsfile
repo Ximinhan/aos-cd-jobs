@@ -19,7 +19,6 @@ node('covscan') {
 
     properties([
         disableResume(),
-        skipDefaultCheckout(),
         [
             $class: 'ParametersDefinitionProperty',
             parameterDefinitions: [
