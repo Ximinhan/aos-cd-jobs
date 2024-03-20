@@ -12,10 +12,10 @@ node('covscan') {
         However it only represents a single version of that operator, and only
         ever needs to be built once; there is no need to rebuild for release.
     """)
-    bundle_nvrs = []
-    operator_nvrs = []
-    only = []
-    exclude = []
+    def bundle_nvrs = []
+    def operator_nvrs = []
+    def only = []
+    def exclude = []
 
     properties([
         disableResume(),
@@ -99,17 +99,13 @@ node('covscan') {
 
     commonlib.checkMock()
     stage('Set build info') {
-        steps {
-            script {
-                operator_nvrs = commonlib.parseList(params.OPERATOR_NVRS)
-                only = commonlib.parseList(params.ONLY)
-                exclude = commonlib.parseList(params.EXCLUDE)
-                currentBuild.displayName += " (${params.BUILD_VERSION})"
+        operator_nvrs = commonlib.parseList(params.OPERATOR_NVRS)
+        only = commonlib.parseList(params.ONLY)
+        exclude = commonlib.parseList(params.EXCLUDE)
+        currentBuild.displayName += " (${params.BUILD_VERSION})"
 
-                if (params.ASSEMBLY && params.ASSEMBLY != "stream") {
-                    currentBuild.displayName += " - assembly ${params.ASSEMBLY}"
-                }
-            }
+        if (params.ASSEMBLY && params.ASSEMBLY != "stream") {
+            currentBuild.displayName += " - assembly ${params.ASSEMBLY}"
         }
     }
 
