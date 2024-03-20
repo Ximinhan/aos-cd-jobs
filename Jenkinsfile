@@ -109,63 +109,61 @@ node('covscan') {
     }
 
     stage('Build bundles') {
-        steps {
-            script {
-                // Prepare working dirs
-                sh "rm -rf ./artcd_working && mkdir -p ./artcd_working"
-                def doozer_working = "${WORKSPACE}/doozer_working"
-                buildlib.cleanWorkdir(doozer_working)
+        script {
+            // Prepare working dirs
+            sh "rm -rf ./artcd_working && mkdir -p ./artcd_working"
+            def doozer_working = "${WORKSPACE}/doozer_working"
+            buildlib.cleanWorkdir(doozer_working)
 
-                // Create artcd command
-                def cmd = [
-                    "artcd",
-                    "-v",
-                    "--working-dir=./artcd_working",
-                    "--config=./config/artcd.toml",
-                ]
-                if (params.DRY_RUN) {
-                    cmd << "--dry-run"
-                }
-                cmd += [
-                    "olm-bundle",
-                    "--version=${params.BUILD_VERSION}",
-                    "--assembly=${params.ASSEMBLY}",
-                    "--data-path=${params.DOOZER_DATA_PATH}",
-                    "--data-gitref=${params.DOOZER_DATA_GITREF}"
-                ]
-                if (operator_nvrs)
-                    cmd << "--nvrs=${operator_nvrs.join(',')}"
-                if (only)
-                    cmd << "--only=${only.join(',')}"
-                if (exclude)
-                    cmd << "--exclude=${exclude.join(',')}"
-                if (params.FORCE_BUILD)
-                    cmd << "--force"
+            // Create artcd command
+            def cmd = [
+                "artcd",
+                "-v",
+                "--working-dir=./artcd_working",
+                "--config=./config/artcd.toml",
+            ]
+            if (params.DRY_RUN) {
+                cmd << "--dry-run"
+            }
+            cmd += [
+                "olm-bundle",
+                "--version=${params.BUILD_VERSION}",
+                "--assembly=${params.ASSEMBLY}",
+                "--data-path=${params.DOOZER_DATA_PATH}",
+                "--data-gitref=${params.DOOZER_DATA_GITREF}"
+            ]
+            if (operator_nvrs)
+                cmd << "--nvrs=${operator_nvrs.join(',')}"
+            if (only)
+                cmd << "--only=${only.join(',')}"
+            if (exclude)
+                cmd << "--exclude=${exclude.join(',')}"
+            if (params.FORCE_BUILD)
+                cmd << "--force"
 
-                // Run pipeline
-                timeout(activity: true, time: 60, unit: 'MINUTES') { // if there is no log activity for 1 hour
-                    echo "Will run ${cmd}"
-                    withCredentials([
-                                string(credentialsId: 'redis-server-password', variable: 'REDIS_SERVER_PASSWORD'),
-                                string(credentialsId: 'redis-host', variable: 'REDIS_HOST'),
-                                string(credentialsId: 'redis-port', variable: 'REDIS_PORT'),
-                                string(credentialsId: 'art-bot-slack-token', variable: 'SLACK_BOT_TOKEN')
-                            ]) {
-                        withEnv(["BUILD_URL=${env.BUILD_URL}"]) {
-                            try {
-                                sh(script: cmd.join(' '), returnStdout: true)
-                            } catch (err) {
-                                throw err
-                            } finally {
-                                commonlib.safeArchiveArtifacts([
-                                    "doozer_working/*.log",
-                                    "doozer_working/*.yaml",
-                                ])
-                            }
-                        } // withEnv
-                    } // withCredentials
-                } // timeout
-            } // script
-        } // steps
+            // Run pipeline
+            timeout(activity: true, time: 60, unit: 'MINUTES') { // if there is no log activity for 1 hour
+                echo "Will run ${cmd}"
+                withCredentials([
+                            string(credentialsId: 'redis-server-password', variable: 'REDIS_SERVER_PASSWORD'),
+                            string(credentialsId: 'redis-host', variable: 'REDIS_HOST'),
+                            string(credentialsId: 'redis-port', variable: 'REDIS_PORT'),
+                            string(credentialsId: 'art-bot-slack-token', variable: 'SLACK_BOT_TOKEN')
+                        ]) {
+                    withEnv(["BUILD_URL=${env.BUILD_URL}"]) {
+                        try {
+                            sh(script: cmd.join(' '), returnStdout: true)
+                        } catch (err) {
+                            throw err
+                        } finally {
+                            commonlib.safeArchiveArtifacts([
+                                "doozer_working/*.log",
+                                "doozer_working/*.yaml",
+                            ])
+                        }
+                    } // withEnv
+                } // withCredentials
+            } // timeout
+        } // script
     } //stage
 } // node
