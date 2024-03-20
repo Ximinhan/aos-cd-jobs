@@ -1,7 +1,7 @@
 node('covscan') {
     checkout scm
-    buildlib = load('pipeline-scripts/buildlib.groovy')
-    commonlib = buildlib.commonlib
+    def buildlib = load('pipeline-scripts/buildlib.groovy')
+    def commonlib = buildlib.commonlib
     commonlib.describeJob("olm_bundle", """
         <h2>Create bundle images for OLM operators</h2>
         <b>Timing</b>: Run by the ocp4 or custom jobs after new builds.
