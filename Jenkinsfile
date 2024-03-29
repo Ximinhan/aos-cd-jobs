@@ -4,6 +4,7 @@ node {
     checkout scm
     def buildlib = load("pipeline-scripts/buildlib.groovy")
     def commonlib = buildlib.commonlib
+    commonlib.describeJob("drop_advisories", "Runs elliott drop-advisory command for one or more advisories")
 
     // Expose properties for a parameterized build
     properties(
