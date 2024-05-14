@@ -135,7 +135,7 @@ node {
                 screen_name=microshift-rpm
                 for rpm in `find ${STAGING_PLASHET_DIR} -name '*.rpm'`; do """ + '''
                     echo signing $rpm
-                    screen -d -m -S $screen_name rpm --addsign $rpm
+                    rpm --addsign $rpm
                     set +e
                     # rpm -K will throw an error if the key is not in the rpm database; we don't care
                     # we just want proof of a key.
