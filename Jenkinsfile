@@ -135,7 +135,7 @@ node {
                 screen_name=microshift-rpm
                 for rpm in `find ${STAGING_PLASHET_DIR} -name '*.rpm'`; do """ + '''
                     echo signing $rpm
-                    screen -d -m -S $screen_name rpm --addsign $rpm
+                    screen -d -m -S $screen_name rpmsign --addsign $rpm
                     sleep 4  # some time to make sure we are at the prompt
                     screen -S $screen_name -p 0 -X stuff "^M"
                     sleep 4  # wait for rpm to be signed
