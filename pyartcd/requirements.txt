@@ -21,3 +21,4 @@ stomp.py ~= 8.1.0
 tenacity
 tomli ~= 2.0.1
 aiohttp>=3.9.0 # not directly required, pinned by Snyk to avoid a vulnerability
+mysql-connector-python>=8.4.0 # not directly required, pinned by Snyk to avoid a vulnerability
