@@ -22,6 +22,7 @@ PACKAGES = {
         "conmon-rs",
     ],
     9: [
+        "glibc",
         "criu",
         "runc",
         "cri-o",
@@ -31,7 +32,7 @@ PACKAGES = {
         "openshift-hyperkube",
         "slirp4netns",
         "conmon-rs",
-        "openvswitch3.1"
+        "openvswitch3.3"
     ],
 }
 
