@@ -23,7 +23,7 @@ PACKAGES = {
     ],
     9: [
         "glibc",
-        "gcc",
+        "libgcc",
         "criu",
         "runc",
         "cri-o",
@@ -148,7 +148,8 @@ async def download_rpms(ocp_version: str, arch: str, rhel_major: int, output_dir
         if arch == 'x86_64':
             packages.append('openshift-clients-redistributable')
         cmd = [
-            "yumdownloader",
+            "dnf",
+            "download",
             f"--releasever={rhel_major}",
             "-c", f"{yum_conf_filename}",
             "--resolve",
