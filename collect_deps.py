@@ -87,9 +87,21 @@ installonly_limit=3
 reposdir=
 skip_missing_names_on_install=0
 
+[rhel-server-{EL}-baseos-x86]
+name = rhel-server-{EL}-baseos-x86
+baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/x86_64/baseos/os
+enabled = 1
+gpgcheck = 0
+
 [rhel-server-{EL}-baseos]
 name = rhel-server-{EL}-baseos
 baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/{ARCH}/baseos/os
+enabled = 1
+gpgcheck = 0
+
+[rhel-server-{EL}-appstream-x86]
+name = rhel-server-{EL}-appstream-x86
+baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/x86_64/appstream/os/
 enabled = 1
 gpgcheck = 0
 
@@ -102,18 +114,6 @@ gpgcheck = 0
 [rhel-server-{EL}-fast-datapath]
 name = rhel-server-{EL}-fast-datapath
 baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/layered/rhel{EL}/{ARCH}/fast-datapath/os/
-enabled = 1
-gpgcheck = 0
-
-[rhel-server-{EL}-baseos-x86]
-name = rhel-server-{EL}-baseos-x86
-baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/x86_64/baseos/os
-enabled = 1
-gpgcheck = 0
-
-[rhel-server-{EL}-appstream-x86]
-name = rhel-server-{EL}-appstream-x86
-baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/x86_64/appstream/os/
 enabled = 1
 gpgcheck = 0
 
