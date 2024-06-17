@@ -22,6 +22,7 @@ PACKAGES = {
         "conmon-rs",
     ],
     9: [
+        "gcc",
         "glibc",
         "criu",
         "runc",
@@ -105,13 +106,13 @@ enabled = 1
 gpgcheck = 0
 
 [rhel-server-{EL}-baseos-x86]
-name = rhel-server-{EL}-baseos
+name = rhel-server-{EL}-baseos-x86
 baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/x86_64/baseos/os
 enabled = 1
 gpgcheck = 0
 
 [rhel-server-{EL}-appstream-x86]
-name = rhel-server-{EL}-appstream
+name = rhel-server-{EL}-appstream-x86
 baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/x86_64/appstream/os/
 enabled = 1
 gpgcheck = 0
