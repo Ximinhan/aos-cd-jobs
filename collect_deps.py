@@ -55,6 +55,7 @@ baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel8/8/{ARCH}/baseos/o
 enabled = 1
 gpgcheck = 0
 
+
 [rhel-server-8-appstream]
 name = rhel-server-8-appstream
 baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel8/8/{ARCH}/appstream/os/
@@ -89,6 +90,13 @@ skip_missing_names_on_install=0
 [rhel-server-{EL}-baseos]
 name = rhel-server-{EL}-baseos
 baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/{ARCH}/baseos/os
+enabled = 1
+gpgcheck = 0
+
+
+[rhel-server-{EL}-baseos-x86]
+name = rhel-server-{EL}-baseos-x86
+baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/x86_64/baseos/os
 enabled = 1
 gpgcheck = 0
 
