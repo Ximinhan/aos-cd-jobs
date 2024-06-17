@@ -103,6 +103,24 @@ baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/layered/rhel{EL}/{ARCH}
 enabled = 1
 gpgcheck = 0
 
+[rhel-server-{EL}-baseos-x86]
+name = rhel-server-{EL}-baseos
+baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/x86_64/baseos/os
+enabled = 1
+gpgcheck = 0
+
+[rhel-server-{EL}-appstream-x86]
+name = rhel-server-{EL}-appstream
+baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/x86_64/appstream/os/
+enabled = 1
+gpgcheck = 0
+
+[rhel-server-{EL}-fast-datapath-x86]
+name = rhel-server-{EL}-fast-datapath
+baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/layered/rhel{EL}/x86_64/fast-datapath/os/
+enabled = 1
+gpgcheck = 0
+
 [rhel-server-{EL}-ose-{OCP_VERSION}-rpms]
 name = rhel-server-{EL}-ose-{OCP_VERSION}-rpms
 baseurl = https://ocp-artifacts.hosts.prod.psi.rdu2.redhat.com/pub/RHOCP/plashets/{OCP_VERSION}/stream/el{EL}/latest/{ARCH}/os
