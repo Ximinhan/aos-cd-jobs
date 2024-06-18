@@ -108,6 +108,12 @@ baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/{ARCH}/ap
 enabled = 1
 gpgcheck = 0
 
+[rhel-server-{EL}-appstream-x86]
+name = rhel-server-{EL}-appstream-x86
+baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/x86_64/appstream/os/
+enabled = 1
+gpgcheck = 0
+
 [rhel-server-{EL}-fast-datapath]
 name = rhel-server-{EL}-fast-datapath
 baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/layered/rhel{EL}/{ARCH}/fast-datapath/os/
