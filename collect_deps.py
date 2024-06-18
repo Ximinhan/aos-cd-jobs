@@ -149,7 +149,7 @@ async def download_rpms(ocp_version: str, arch: str, rhel_major: int, output_dir
             "--resolve",
             "--disableplugin=subscription-manager",
             "--downloadonly",
-            f"--installroot={Path(install_root_dir).absolute()}",
+            #f"--installroot={Path(install_root_dir).absolute()}",
             f"--destdir={output_dir}",
             f"--arch={arch}",
             "--",
