@@ -92,22 +92,9 @@ baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/{ARCH}/ba
 enabled = 1
 gpgcheck = 0
 
-
-[rhel-server-{EL}-baseos-x86]
-name = rhel-server-{EL}-baseos-x86
-baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/x86_64/baseos/os
-enabled = 1
-gpgcheck = 0
-
 [rhel-server-{EL}-appstream]
 name = rhel-server-{EL}-appstream
 baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/{ARCH}/appstream/os/
-enabled = 1
-gpgcheck = 0
-
-[rhel-server-{EL}-appstream-x86]
-name = rhel-server-{EL}-appstream-x86
-baseurl = https://rhsm-pulp.corp.redhat.com/content/dist/rhel{EL}/{EL}/x86_64/appstream/os/
 enabled = 1
 gpgcheck = 0
 
@@ -154,10 +141,11 @@ async def download_rpms(ocp_version: str, arch: str, rhel_major: int, output_dir
             "-c", f"{yum_conf_filename}",
             "--resolve",
             "--disableplugin=subscription-manager",
-            "--nobest",
+            "--downloadonly",
+            "--alldeps",
             #f"--installroot={Path(install_root_dir).absolute()}",
             f"--destdir={output_dir}",
-            f"--arch={arch}",
+            f"--forcearch={arch}",
             "--",
         ] + packages
         LOGGER.info("Running command %s", cmd)
