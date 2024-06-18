@@ -22,6 +22,9 @@ PACKAGES = {
         "conmon-rs",
     ],
     9: [
+        "gcc",
+        "libgcc",
+        "glibc",
         "criu",
         "runc",
         "cri-o",
