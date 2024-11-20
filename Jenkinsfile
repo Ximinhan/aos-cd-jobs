@@ -21,6 +21,7 @@ node {
                         choices: commonlib.ocpVersions,
                         description: 'OCP Version',
                     ),
+                    commonlib.artToolsParam(),
                     string(
                         name: 'GOLANG_NVRS',
                         description: 'Golang NVRs (one or multiple but atmost one for a rhel version) that you expect to build images for. This is to ensure that the right compiler nvrs are picked up (comma/space separated)',
