@@ -53,6 +53,11 @@ node {
                             defaultValue: false,
                         ),
                         booleanParam(
+                            name: 'IGNORE_NON_X86',
+                            description: 'Ignore non nightlies that diff from x86 nightly',
+                            defaultValue: false,
+                        ),
+                        booleanParam(
                             name: 'ALLOW_INCONSISTENCY',
                             description: 'Allow matching nightlies built from matching commits but with inconsistent RPMs',
                             defaultValue: false,
@@ -149,6 +154,9 @@ node {
             }
             if (params.ALLOW_REJECTED) {
                 cmd << "--allow-rejected"
+            }
+            if (params.IGNORE_NON_X86) {
+                cmd << "--ignore-non-x86-nightlies"
             }
             if (params.ALLOW_INCONSISTENCY) {
                 cmd << "--allow-inconsistency"
