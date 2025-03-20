@@ -88,18 +88,9 @@ node {
                     data = readJSON text: text
                     if (data["action"] == "skip") {
                         skipBuild = true
-                    } else {
-                        if (data["builds"].any { !(it["result"] in ["SUCCESS", null]) }) {
-                            currentBuild.result = "UNSTABLE"
-                            currentBuild.displayName += " -- Completed with failure"
-                        } else {
-                            currentBuild.displayName += " -- Completed"
-                        }
                     }
                     for (build in data["builds"]) {
-                        status = "${build["url"]} - ${build["result"]} '${build["description"]}'"
-                        echo status
-                        currentBuild.description += "\n<br>${status}"
+                        currentBuild.description += "\n<br>${build["url"]}"
                     }
                 }
             }
