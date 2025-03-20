@@ -51,7 +51,6 @@ node {
                         defaultValue: false
                     ),
                     commonlib.artToolsParam(),
-                    commonlib.mockParam(),
                 ]
             ],
         ]
@@ -59,18 +58,10 @@ node {
 
     commonlib.checkMock()
     currentBuild.displayName = "#${currentBuild.number} - ${params.BUILD_VERSION}: "
-
-    if (currentBuild.description == null) {
-        currentBuild.description = ""
-    }
-    currentBuild.description += "RHCOS ${params.BUILD_VERSION}\n"
+    currentBuild.description = "RHCOS ${params.BUILD_VERSION}\n"
     skipBuild = true  // global variable to track if we skip the remote build
 
     try {
-        def releaseArches = buildlib.branch_arches("openshift-${params.BUILD_VERSION}").toList()
-
-        arches = commonlib.parseList(params.ARCHES)
-
         kubeconfigs = [
             'x86_64': 'jenkins_serviceaccount_ocp-virt.prod.psi.redhat.com.kubeconfig',
             'ppc64le': 'jenkins_serviceaccount_ocp-ppc.stage.psi.redhat.com',
@@ -85,105 +76,50 @@ node {
         def lockval = params.DRY_RUN ? "rhcos-lock-${params.BUILD_VERSION}-dryrun" : "rhcos-lock-${params.BUILD_VERSION}"
         lock(resource: lockval, skipIfLocked: true) {  // wait for all to succeed or fail for this version before starting more
             skipBuild = false
+            currentBuild.displayName += "multi"
+            echo "triggering multi builds"
+            buildlib.init_artcd_working_dir()
 
-            // Check if urls.rhcos_release_base.multi is defined in group.yml
-            def cmd = "doozer -g openshift-${params.BUILD_VERSION} config:read-group urls.rhcos_release_base.multi --default ''"
-            def multi_builds_enabled = !!(commonlib.shell(script: cmd, returnStdout: true).trim())
-
-            if (multi_builds_enabled) {
-                currentBuild.displayName += "multi"
-                echo "triggering multi builds"
-                buildlib.init_artcd_working_dir()
-
-                def dryrun = params.DRY_RUN ? '--dry-run' : ''
-                def run_multi_build = {
-                    withCredentials([file(credentialsId: kubeconfigs['multi'], variable: 'KUBECONFIG')]) {
-                        // we want to see the stderr as it runs, so will not capture with commonlib.shell;
-                        // but somehow it is buffering the stderr anyway and [lmeyer] cannot figure out why.
-                        text = sh(returnStdout: true, script: """
-                              no_proxy=api.ocp-virt.prod.psi.redhat.com,\$no_proxy \\
-                              artcd ${dryrun} --config=./config/artcd.toml build-rhcos --version=${params.BUILD_VERSION} \\
-                                --ignore-running=${params.IGNORE_RUNNING} --new-build=${params.NEW_BUILD} --job=${params.JOB_NAME}
-                        """)
-                        echo text
-                        if (params.DRY_RUN) {
-                            skipBuild = true
-                            return
-                        }
-                        data = readJSON text: text
-                        if (data["action"] == "skip") {
-                            skipBuild = true
+            def dryrun = params.DRY_RUN ? '--dry-run' : ''
+            def run_multi_build = {
+                withCredentials([file(credentialsId: kubeconfigs['multi'], variable: 'KUBECONFIG')]) {
+                    // we want to see the stderr as it runs, so will not capture with commonlib.shell;
+                    // but somehow it is buffering the stderr anyway and [lmeyer] cannot figure out why.
+                    text = sh(returnStdout: true, script: """
+                          no_proxy=api.ocp-virt.prod.psi.redhat.com,\$no_proxy \\
+                          artcd ${dryrun} --config=./config/artcd.toml build-rhcos --version=${params.BUILD_VERSION} \\
+                            --ignore-running=${params.IGNORE_RUNNING} --new-build=${params.NEW_BUILD} --job=${params.JOB_NAME}
+                    """)
+                    echo text
+                    if (params.DRY_RUN) {
+                        skipBuild = true
+                        return
+                    }
+                    data = readJSON text: text
+                    if (data["action"] == "skip") {
+                        skipBuild = true
+                    } else {
+                        if (data["builds"].any { !(it["result"] in ["SUCCESS", null]) }) {
+                            currentBuild.result = "UNSTABLE"
+                            currentBuild.displayName += " -- Completed with failure"
                         } else {
-                            if (data["builds"].any { !(it["result"] in ["SUCCESS", null]) }) {
-                                currentBuild.result = "UNSTABLE"
-                                currentBuild.displayName += " -- Completed with failure"
-                            } else {
-                                currentBuild.displayName += " -- Completed"
-                            }
-                        }
-                        for (build in data["builds"]) {
-                            status = "${build["url"]} - ${build["result"]} '${build["description"]}'"
-                            echo status
-                            currentBuild.description += "\n<br>${status}"
+                            currentBuild.displayName += " -- Completed"
                         }
                     }
-                }
-                try {
-                    // succeed or fail, RHCOS team do not want us to kick off builds too often
-                    parallel "multi": run_multi_build, "rate-limit": { sleep 60 * 60 * 2 }
-                } catch (err) {
-                    currentBuild.displayName += " -- Failed"
-                    echo "Failure: ${err}"
-                    currentBuild.result = "FAILURE"
-                }
-            } else {
-                echo "Multi builds are not enabled. Triggering individual builds"
-                currentBuild.displayName += "${params.ARCHES}"
-
-                timestamps {
-                    def archJobs = [:]
-                    for (arch in arches) {
-                        def jobArch = arch.trim() // make sure we use a locally scoped variable
-                        if (!releaseArches.contains(jobArch)) {
-                            echo "Skipping ${jobArch} since ${params.BUILD_VERSION} only supports ${releaseArches}"
-                            continue
-                        }
-                        archJobs["trigger-${jobArch}"] = {
-                            try {
-                                lock(label: "rhcos-build-capacity-${jobArch}", quantity: 1) { // cluster capacity limited per arch
-                                    withCredentials([file(credentialsId: kubeconfigs[jobArch], variable: 'KUBECONFIG')]) {
-                                        // the squid proxy inhibits communication to some RHCOS clusters, so augment no_proxy
-                                        sh  'export no_proxy=ocp-ppc.stage.psi.redhat.com,api.s390x.psi.redhat.com,api.ocp-virt.prod.psi.redhat.com,$no_proxy\n' +
-                                            "oc project\n" +
-                                            "BUILDNAME=`oc start-build -o=name buildconfig/rhcos-${params.BUILD_VERSION}`\n" +
-                                            'echo Triggered $BUILDNAME\n' +
-                                            'for i in {1..240}; do\n' +
-                                            '   PHASE=`oc get $BUILDNAME -o go-template=\'{{.status.phase}}\'`\n' +
-                                            '   echo Current phase: $PHASE\n' +
-                                            '   if [[ "$PHASE" == "Complete" ]]; then\n' +
-                                            '       oc logs $BUILDNAME\n' +
-                                            '       exit 0\n' +
-                                            '   fi\n' +
-                                            '   if [[ "$PHASE" == "Failed" || "$PHASE" == "Cancelled" || "$PHASE" == "Error" ]]; then\n' +
-                                            '       oc logs $BUILDNAME\n' +
-                                            '       exit 1\n' +
-                                            '   fi\n' +
-                                            '   sleep 60\n' +
-                                            'done\n' +
-                                            'oc logs $BUILDNAME\n' +
-                                            'echo Timed out waiting for build to complete..\n' +
-                                            'exit 2\n'
-                                    }
-                                }
-                                currentBuild.description += "${jobArch} Success\n"
-                            } catch (err) {
-                                currentBuild.description += "${jobArch} Failure\n"
-                                currentBuild.result = "UNSTABLE"
-                            }
-                        }
+                    for (build in data["builds"]) {
+                        status = "${build["url"]} - ${build["result"]} '${build["description"]}'"
+                        echo status
+                        currentBuild.description += "\n<br>${status}"
                     }
-                    parallel archJobs
                 }
+            }
+            try {
+                // succeed or fail, RHCOS team do not want us to kick off builds too often
+                parallel "multi": run_multi_build, "rate-limit": { sleep 60 * 60 * 2 }
+            } catch (err) {
+                currentBuild.displayName += " -- Failed"
+                echo "Failure: ${err}"
+                currentBuild.result = "FAILURE"
             }
         }
         if (skipBuild) {
