@@ -29,6 +29,12 @@ node {
                         defaultValue: commonlib.brewArches.join(','),
                         trim: true,
                     ),
+                    string(
+                        name: 'JOB_NAME',
+                        description: 'RHCOS job name to trigger',
+                        defaultValue: 'build',
+                        trim: true,
+                    ),
                     booleanParam(
                         name: 'NEW_BUILD',
                         description: '(Multi pipeline only) Request a new build from the RHCOS pipeline even when it finds no changes from the last.',
@@ -97,7 +103,7 @@ node {
                         text = sh(returnStdout: true, script: """
                               no_proxy=api.ocp-virt.prod.psi.redhat.com,\$no_proxy \\
                               artcd ${dryrun} --config=./config/artcd.toml build-rhcos --version=${params.BUILD_VERSION} \\
-                                --ignore-running=${params.IGNORE_RUNNING} --new-build=${params.NEW_BUILD}
+                                --ignore-running=${params.IGNORE_RUNNING} --new-build=${params.NEW_BUILD} --job=${params.JOB_NAME}
                         """)
                         echo text
                         if (params.DRY_RUN) {
