@@ -6,10 +6,6 @@ node {
     def commonlib = buildlib.commonlib
     def slacklib = commonlib.slacklib
 
-    commonlib.describeJob("rhcos", """
-        <h2>Triggers and waits for an RHCOS build to complete</h2>
-    """)
-
     // Expose properties for a parameterized build
     properties(
         [
