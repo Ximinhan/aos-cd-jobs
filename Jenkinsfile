@@ -20,12 +20,6 @@ node {
                     commonlib.mockParam(),
                     commonlib.ocpVersionParam('BUILD_VERSION', '4'),
                     string(
-                        name: 'ARCHES',
-                        description: '(Legacy pipeline only) List of architectures to build for RHCOS.',
-                        defaultValue: commonlib.brewArches.join(','),
-                        trim: true,
-                    ),
-                    string(
                         name: 'JOB_NAME',
                         description: 'RHCOS job name to trigger',
                         defaultValue: 'build',
