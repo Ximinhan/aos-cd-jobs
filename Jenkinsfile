@@ -19,11 +19,10 @@ node {
                 parameterDefinitions: [
                     commonlib.mockParam(),
                     commonlib.ocpVersionParam('BUILD_VERSION', '4'),
-                    string(
+                    choice(
                         name: 'JOB_NAME',
                         description: 'RHCOS job name to trigger',
-                        defaultValue: 'build',
-                        trim: true,
+                        choices: ['build'],
                     ),
                     booleanParam(
                         name: 'NEW_BUILD',
