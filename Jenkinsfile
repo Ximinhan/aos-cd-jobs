@@ -80,9 +80,6 @@ node {
                     if (data["action"] == "skip") {
                         skipBuild = true
                     }
-                    for (build in data["builds"]) {
-                        currentBuild.description += "\n<br>${build["url"]}"
-                    }
                 }
             }
             try {
