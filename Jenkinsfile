@@ -66,8 +66,7 @@ node {
         def lockval = params.DRY_RUN ? "rhcos-lock-${params.BUILD_VERSION}-dryrun" : "rhcos-lock-${params.BUILD_VERSION}"
         lock(resource: lockval, skipIfLocked: true) {  // wait for all to succeed or fail for this version before starting more
             skipBuild = false
-            currentBuild.displayName += "multi"
-            echo "triggering multi builds"
+            echo "triggering rhcos builds"
             buildlib.init_artcd_working_dir()
 
             def dryrun = params.DRY_RUN ? '--dry-run' : ''
@@ -75,7 +74,7 @@ node {
                 withCredentials([file(credentialsId: kubeconfigs['multi'], variable: 'KUBECONFIG')]) {
                     // we want to see the stderr as it runs, so will not capture with commonlib.shell;
                     // but somehow it is buffering the stderr anyway and [lmeyer] cannot figure out why.
-                    text = sh(returnStdout: true, script: """
+                    def text = sh(returnStdout: true, script: """
                           no_proxy=api.ocp-virt.prod.psi.redhat.com,\$no_proxy \\
                           artcd ${dryrun} --config=./config/artcd.toml build-rhcos --version=${params.BUILD_VERSION} \\
                             --ignore-running=${params.IGNORE_RUNNING} --new-build=${params.NEW_BUILD} --job=${params.JOB_NAME}
@@ -85,7 +84,7 @@ node {
                         skipBuild = true
                         return
                     }
-                    data = readJSON text: text
+                    def data = readJSON(text: text)
                     if (data["action"] == "skip") {
                         skipBuild = true
                     }
