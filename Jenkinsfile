@@ -49,17 +49,9 @@ node {
     commonlib.checkMock()
     currentBuild.displayName = "#${currentBuild.number} - ${params.BUILD_VERSION}: "
     currentBuild.description = "RHCOS ${params.BUILD_VERSION}\n"
-    skipBuild = true  // global variable to track if we skip the remote build
+    def skipBuild = true  // global variable to track if we skip the remote build
 
     try {
-        kubeconfigs = [
-            'x86_64': 'jenkins_serviceaccount_ocp-virt.prod.psi.redhat.com.kubeconfig',
-            'ppc64le': 'jenkins_serviceaccount_ocp-ppc.stage.psi.redhat.com',
-            's390x': 'jenkins_serviceaccount_legacy_rhcos_s390x.psi.redhat.com',
-            'aarch64': 'jenkins_serviceaccount_osbs-aarch64-1.engineering.redhat.com',
-            'multi': 'rhcos--prod-pipeline_jenkins_api-prod-stable-spoke1-dc-iad2-itup-redhat-com',
-        ]
-
         // Disabling compose lock for now. Ideally we achieve a stable repo for RHCOS builds in the future,
         // but for now, being this strict is slowing down the delivery of nightlies.
         //lock("compose-lock-${params.BUILD_VERSION}") {
@@ -71,7 +63,7 @@ node {
 
             def dryrun = params.DRY_RUN ? '--dry-run' : ''
             def run_multi_build = {
-                withCredentials([file(credentialsId: kubeconfigs['multi'], variable: 'KUBECONFIG')]) {
+                withCredentials([file(credentialsId: 'rhcos--prod-pipeline_jenkins_api-prod-stable-spoke1-dc-iad2-itup-redhat-com', variable: 'KUBECONFIG')]) {
                     // we want to see the stderr as it runs, so will not capture with commonlib.shell;
                     // but somehow it is buffering the stderr anyway and [lmeyer] cannot figure out why.
                     def text = sh(returnStdout: true, script: """
