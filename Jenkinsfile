@@ -48,8 +48,7 @@ node {
 
     def version = params.BUILD_VERSION
     def assembly = params.ASSEMBLY
-    def versionParts = version.split('.')
-    def out = buildlib.doozer("--group=openshift-${version} -r microshift config:read-rpms --yaml" + (versionParts.length > 1 && versionParts[1].toInteger() >= 20 ? " --build-system=konflux" : ""),
+    def out = buildlib.doozer("--group=openshift-${version} -r microshift --build-system=konflux config:read-rpms --yaml",
                               [capture: true]).trim()
     def yaml_data = readYaml(text: out)["microshift"]
     def rhel_targets = yaml_data["rhel_targets"]
