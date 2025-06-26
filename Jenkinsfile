@@ -71,6 +71,7 @@ node() {
                     "prepare-release-konflux",
                     "--group", "openshift-${params.BUILD_VERSION}",
                     "--assembly", params.ASSEMBLY,
+                    "--kubeconfig=${env.KONFLUX_SA_KUBECONFIG}",
                 ]
                 if (params.SHIPMENT_REPO_URL) {
                     cmd += ["--shipment-repo-url", params.SHIPMENT_REPO_URL]
@@ -86,6 +87,9 @@ node() {
                     string(credentialsId: 'openshift-bot-token', variable: 'GITHUB_TOKEN'),
                     string(credentialsId: 'jboss-jira-token', variable: 'JIRA_TOKEN'),
                     file(credentialsId: 'konflux-gcp-app-creds-prod', variable: 'GOOGLE_APPLICATION_CREDENTIALS'),
+                    file(credentialsId: 'openshift-bot-ocp-konflux-service-account', variable: 'KONFLUX_SA_KUBECONFIG'),
+                    string(credentialsId: 'konflux-art-images-username', variable: 'KONFLUX_ART_IMAGES_USERNAME'),
+                    string(credentialsId: 'konflux-art-images-password', variable: 'KONFLUX_ART_IMAGES_PASSWORD'),
                 ]) {
                     commonlib.shell(script: cmd.join(' '))
                 }
