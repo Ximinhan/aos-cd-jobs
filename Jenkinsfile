@@ -57,30 +57,6 @@ node() {
             stage("build") {
                 buildlib.cleanWorkdir("./artcd_working")
                 sh "mkdir -p ./artcd_working"
-                def cmd = [
-                    "artcd",
-                    "-v",
-                    "--working-dir=./artcd_working",
-                    "--config", "./config/artcd.toml",
-                ]
-                if (params.DRY_RUN) {
-                    cmd += ["--dry-run"]
-                }
-
-                cmd += [
-                    "prepare-release-konflux",
-                    "--group", "openshift-${params.BUILD_VERSION}",
-                    "--assembly", params.ASSEMBLY,
-                    "--kubeconfig=${env.KONFLUX_SA_KUBECONFIG}",
-                ]
-                if (params.SHIPMENT_REPO_URL) {
-                    cmd += ["--shipment-repo-url", params.SHIPMENT_REPO_URL]
-                }
-                if (params.BUILD_REPO_URL) {
-                    cmd += ["--build-repo-url", params.BUILD_REPO_URL]
-                }
-                echo "Will run ${cmd.join(' ')}"
-                
                 withCredentials([
                     string(credentialsId: 'art-bot-slack-token', variable: 'SLACK_BOT_TOKEN'),
                     string(credentialsId: 'art-bot-jenkins-gitlab', variable: 'GITLAB_TOKEN'),
@@ -91,6 +67,29 @@ node() {
                     string(credentialsId: 'konflux-art-images-username', variable: 'KONFLUX_ART_IMAGES_USERNAME'),
                     string(credentialsId: 'konflux-art-images-password', variable: 'KONFLUX_ART_IMAGES_PASSWORD'),
                 ]) {
+                    def cmd = [
+                        "artcd",
+                        "-v",
+                        "--working-dir=./artcd_working",
+                        "--config", "./config/artcd.toml",
+                    ]
+                    if (params.DRY_RUN) {
+                        cmd += ["--dry-run"]
+                    }
+    
+                    cmd += [
+                        "prepare-release-konflux",
+                        "--group", "openshift-${params.BUILD_VERSION}",
+                        "--assembly", params.ASSEMBLY,
+                        "--kubeconfig=${env.KONFLUX_SA_KUBECONFIG}",
+                    ]
+                    if (params.SHIPMENT_REPO_URL) {
+                        cmd += ["--shipment-repo-url", params.SHIPMENT_REPO_URL]
+                    }
+                    if (params.BUILD_REPO_URL) {
+                        cmd += ["--build-repo-url", params.BUILD_REPO_URL]
+                    }
+                    echo "Will run ${cmd.join(' ')}"
                     commonlib.shell(script: cmd.join(' '))
                 }
             }
