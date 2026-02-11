@@ -220,6 +220,7 @@ node() {
                     string(credentialsId: 'jenkins-service-account-token', variable: 'JENKINS_SERVICE_ACCOUNT_TOKEN'),
                     file(credentialsId: 'konflux-gcp-app-creds-prod', variable: 'GOOGLE_APPLICATION_CREDENTIALS'),
                     file(credentialsId: 'konflux-art-images-auth-file', variable: 'KONFLUX_ART_IMAGES_AUTH_FILE'),
+                    file(credentialsId: 'creds_registry.redhat.io', variable: 'KONFLUX_OPERATOR_INDEX_AUTH_FILE'),
                 ]) {
                     def envVars = ["BUILD_URL=${BUILD_URL}", "JOB_NAME=${JOB_NAME}"]
                     if (params.TELEMETRY_ENABLED) {
