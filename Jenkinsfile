@@ -230,6 +230,7 @@ node() {
                         }
                     }
                     withEnv(envVars) {
+                        buildlib.registry_quay_dev_login(env.KONFLUX_OPERATOR_INDEX_AUTH_FILE)
                         sh(script: cmd.join(' '), returnStdout: true)
                     }
                 }
